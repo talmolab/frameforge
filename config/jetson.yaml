@@ -1,0 +1,35 @@
+# frameforge — Jetson weekend test config.
+# Secrets (SMB creds) are NOT here; they're used by the cifs mount step.
+# Paths/dest can be overridden via FF_VAST_DEST / FF_SCRATCH / FF_LOG_DIR.
+
+cameras:
+  - id: cam_08              # → metadata_helper cam_XX
+    serial: "24750381"      # "" = first device found
+    pfs: /etc/frameforge/cam_08.pfs
+
+width: 1280
+height: 1024
+channels: 1                 # mono8
+
+encode:
+  backend: nvv4l2h264enc    # Jetson HW encoder
+  bitrate_mbps: 1
+  control: vbr
+  fps: 50
+  chunk_secs: 1800          # 30-min chunks
+  gop: 250
+  bframes: 0
+  faststart: true
+  pix_fmt: nv12
+
+paths:
+  scratch: /var/lib/frameforge/scratch
+  vast_dest: /mnt/vast/cdracos/frameforge_test   # TEST path, not the prod tree
+
+ring:
+  slots: 128
+queue:
+  depth: 256
+metrics:
+  port: 9100
+log_dir: /var/log/frameforge

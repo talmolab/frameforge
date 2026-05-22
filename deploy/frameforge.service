@@ -1,0 +1,24 @@
+# systemd unit for the Jetson weekend run.
+# Install: sudo cp deploy/frameforge.service /etc/systemd/system/
+#          sudo systemctl daemon-reload && sudo systemctl enable --now frameforge
+[Unit]
+Description=frameforge camera acquisition
+After=network-online.target remote-fs.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=charlie
+WorkingDirectory=/home/charlie/frameforge
+Environment=FF_CONFIG=/home/charlie/frameforge/config/jetson.yaml
+# Paths/dest via env (SMB creds live in the cifs mount, not here):
+# Environment=FF_VAST_DEST=/mnt/vast/cdracos/frameforge_test
+ExecStart=/usr/bin/python3 -m frameforge
+Restart=on-failure
+RestartSec=3
+# Give the supervisor time to drain + finalize the current chunk on stop:
+KillSignal=SIGTERM
+TimeoutStopSec=90
+
+[Install]
+WantedBy=multi-user.target

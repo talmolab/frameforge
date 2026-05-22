@@ -1,0 +1,5 @@
+# frameforge runtime deps for the Jetson (JetPack 4.6 / Python 3.6).
+# numpy + cv2(GStreamer) are already provided by JetPack; pypylon installed separately.
+pyyaml>=5.1
+dataclasses; python_version < "3.7"
+# prometheus_client added in the Metrics round.
