@@ -1,31 +1,30 @@
 """Process-wide logging: rotating file + stdout. Call once per process."""
-from __future__ import annotations
 
 import logging
 import os
 import sys
 from logging.handlers import RotatingFileHandler
 
-_FMT = "%(asctime)s %(levelname)-7s %(processName)s %(name)s: %(message)s"
+_FORMAT = "%(asctime)s %(levelname)-7s %(processName)s %(name)s: %(message)s"
 
 
 def setup_logging(log_dir: str, level: int = logging.INFO) -> None:
-    root = logging.getLogger()
-    if root.handlers:          # already configured (e.g. re-import in a worker)
+    root_logger = logging.getLogger()
+    if root_logger.handlers:
         return
-    root.setLevel(level)
+    root_logger.setLevel(level)
 
-    stream = logging.StreamHandler(sys.stdout)
-    stream.setFormatter(logging.Formatter(_FMT))
-    root.addHandler(stream)
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setFormatter(logging.Formatter(_FORMAT))
+    root_logger.addHandler(stream_handler)
 
     try:
         os.makedirs(log_dir, exist_ok=True)
-        fileh = RotatingFileHandler(
+        file_handler = RotatingFileHandler(
             os.path.join(log_dir, "frameforge.log"),
             maxBytes=20 * 1024 * 1024, backupCount=5,
         )
-        fileh.setFormatter(logging.Formatter(_FMT))
-        root.addHandler(fileh)
-    except OSError as e:        # log dir not writable → stdout only
-        root.warning("file logging disabled (%s): %s", log_dir, e)
+        file_handler.setFormatter(logging.Formatter(_FORMAT))
+        root_logger.addHandler(file_handler)
+    except OSError as error:
+        root_logger.warning("file logging disabled (%s): %s", log_dir, error)

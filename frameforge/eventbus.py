@@ -1,19 +1,24 @@
-"""Event-bus seam (aux input streams).
+"""Event-bus seam for aux input streams.
 
-STUB: real timestamped event seam (in-process queue → sidecar timeseries,
-aligned to video via host-monotonic ts) comes in the Event-Bus round. No MVP
-integrations; never couples into the acq/encode hot loops.
+STUB — never couples into the acq/encode hot loops. Real timestamped aux-event
+sink lands in the Event-Bus round.
 """
-from __future__ import annotations
 
 import logging
 import time
 
-log = logging.getLogger("frameforge.eventbus")
+from .context import Context
 
 
-def run(cfg, drain, registry) -> None:
-    log.info("[stub] event-bus seam starting (no MVP sink)")
-    while not drain.is_set():
-        time.sleep(5.0)
-    log.info("[stub] event-bus seam stopping")
+class EventBus:
+    def __init__(self, context: Context) -> None:
+        self.context = context
+        self.logger = logging.getLogger("frameforge.eventbus")
+
+    def run(self) -> None:
+        self.logger.info("[stub] event-bus seam starting (no MVP sink)")
+
+        while not self.context.drain.is_set():
+            time.sleep(5.0)
+
+        self.logger.info("[stub] event-bus seam stopping")

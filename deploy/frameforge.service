@@ -1,22 +1,42 @@
-# systemd unit for the Jetson weekend run.
-# Install: sudo cp deploy/frameforge.service /etc/systemd/system/
-#          sudo systemctl daemon-reload && sudo systemctl enable --now frameforge
+# systemd unit for frameforge on the Jetson (bench profile).
+#
+# Install:
+#   sudo cp deploy/frameforge.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now frameforge
+#
+# Secrets:
+#   sudo install -d -m 700 /etc/frameforge
+#   sudoedit /etc/frameforge/secrets.env       # see template below; chmod 600
+#
+#     VAST_USER=cdracos
+#     VAST_PASS=...
+#
+# Logs:
+#   journalctl -u frameforge -f
+#   tail -f /home/charlie/frameforge/logs/frameforge.log
+
 [Unit]
 Description=frameforge camera acquisition
-After=network-online.target remote-fs.target
+After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
 User=charlie
-WorkingDirectory=/home/charlie/frameforge
-Environment=FF_CONFIG=/home/charlie/frameforge/config/jetson.yaml
-# Paths/dest via env (SMB creds live in the cifs mount, not here):
-# Environment=FF_VAST_DEST=/mnt/vast/cdracos/frameforge_test
+WorkingDirectory=/home/charlie/Projects/frameforge
+
+Environment=FF_PROFILE=bench
+Environment=FF_SCRATCH=/home/charlie/Projects/frameforge/scratch
+Environment=FF_LOG_DIR=/home/charlie/Projects/frameforge/logs
+EnvironmentFile=/etc/frameforge/secrets.env
+
 ExecStart=/usr/bin/python3 -m frameforge
+
 Restart=on-failure
 RestartSec=3
-# Give the supervisor time to drain + finalize the current chunk on stop:
+
+# Supervisor's internal drain waits up to 60s for workers to finalize the
+# current chunk; give systemd a little slack on top of that.
 KillSignal=SIGTERM
 TimeoutStopSec=90
 

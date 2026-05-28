@@ -1,0 +1,10 @@
+# frameforge — minimal Jetson config. Code defaults cover everything else.
+# Override paths via env: FF_VAST_DEST, FF_SCRATCH, FF_LOG_DIR.
+
+encode:
+  bitrate_mbps: 0.16  # ~72 MB/hr at 50 fps; tracks CRF 21 file-size target
+
+cameras:
+  - id: cam_08
+    # serial: ""                          # blank/omitted = first device found
+    # pfs: /etc/frameforge/cam_08.pfs     # optional pylon feature-stream file

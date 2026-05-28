@@ -2,4 +2,5 @@
 # numpy + cv2(GStreamer) are already provided by JetPack; pypylon installed separately.
 pyyaml>=5.1
 dataclasses; python_version < "3.7"
-# prometheus_client added in the Metrics round.
+smbprotocol>=1.9,<2          # 1.10+ dropped Python 3.6 support
+prometheus_client>=0.14,<0.18  # 0.18 dropped Python 3.6 support
