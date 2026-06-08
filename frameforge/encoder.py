@@ -1,11 +1,14 @@
 """Per-camera HW encoder.
 
-- Chunks are wall-clock-hour-aligned (matches metadata_helper math).
-- Each outer-loop iteration derives ``chunk_index`` from the wall clock and
-  either records this hour's chunk OR — if the file already exists for this
-  hour — drains the ring/queue until the next hour. The discard branch is how
-  we recover from a mid-chunk writer failure: the partial was finalized and
-  renamed, so this hour is done.
+- ``chunk_index`` = TZ-aware elapsed hours since today's midnight (in local
+  TZ). Normal days produce 24 chunks (0-23 matching wall-clock hours);
+  DST spring-forward produces 23 (0-22, no gap); DST fall-back produces 25
+  (0-24, no collision). Mid-day startup naturally lands at the current
+  elapsed hour.
+- Each outer-loop iteration computes ``chunk_index`` and either records this
+  chunk or — if the .mp4 already exists (crash recovery, same-hour restart) —
+  enters idle mode until the next chunk boundary. Idle drains the ring/queue
+  without writing so acq isn't artificially back-pressured.
 - Backend is a small ABC + factory so x86/QuickSync drops in without touching
   the orchestration above.
 """
@@ -25,14 +28,15 @@ from .shm_ring import FrameRing
 
 
 _METRIC_FRAMES = "enc.%s.frames"
-_METRIC_SYNTHETIC = "enc.%s.synthetic"
 _METRIC_WRITER_FAILURES = "enc.%s.writer_failures"
 _METRIC_OPEN_FAILURES = "enc.%s.open_failures"
-_METRIC_DISCARDED = "enc.%s.discarded"
+_METRIC_IDLE = "enc.%s.idle"
+_METRIC_DRAIN_PENDING = "enc.%s.drain_pending"
 _METRIC_ENCODE_MS_LAST = "enc.%s.encode_ms_last"
 _METRIC_ENCODE_MS_MAX = "enc.%s.encode_ms_max"
 
 _SAMPLE_EVERY_N_FRAMES = 50
+_SOFT_DRAIN_LOG_INTERVAL_S = 60.0
 
 
 class WriterDied(RuntimeError):
@@ -120,40 +124,43 @@ class Encoder:
     def run(self) -> None:
         camera_id = self.camera_config.id
         self.logger.info(
-            "encoder %s starting (session=%s recstart=%s)",
-            camera_id,
-            self.context.session_name,
-            self.context.recording_start_str)
+            "encoder %s starting session=%s",
+            camera_id, self.context.session_name)
         try:
             while not self.context.drain.is_set():
                 chunk_index = self._current_chunk_index()
-                chunk_path = self._chunk_path(chunk_index)
+                recording_start_str = self._today_midnight_str()
+                chunk_path = self._chunk_path(recording_start_str, chunk_index)
                 if os.path.exists(chunk_path):
-                    self._discard_until_next_chunk(chunk_index)
+                    self._idle_until_next_chunk(chunk_index)
                 else:
                     self._record_chunk(chunk_index, chunk_path)
         finally:
             self.logger.info("encoder %s stopping", camera_id)
 
-    def _current_chunk_index(self):
-        elapsed = datetime.datetime.now() - self.context.recording_start
-        return max(0, int(elapsed.total_seconds() // 3600))
+    def _today_midnight_aware(self):
+        now = datetime.datetime.now().astimezone()
+        return now.replace(hour=0, minute=0, second=0, microsecond=0)
 
-    def _chunk_path(self, chunk_index):
+    def _today_midnight_str(self):
+        return self._today_midnight_aware().strftime("%Y-%m-%d-%H-%M-%S")
+
+    def _current_chunk_index(self):
+        elapsed_s = (datetime.datetime.now().astimezone()
+                     - self._today_midnight_aware()).total_seconds()
+        return max(0, int(elapsed_s // 3600))
+
+    def _chunk_path(self, recording_start_str, chunk_index):
         return os.path.join(
             self.context.config.paths.scratch,
             self.context.session_name,
             self.camera_config.id,
-            self.context.recording_start_str,
+            recording_start_str,
             "%s.%02d.mp4" % (self.camera_config.id, chunk_index),
         )
 
-    def _frames_for_chunk(self, _chunk_index):
+    def _target_frames(self):
         return int(round(3600.0 * self.context.config.encode.fps))
-
-    def _chunk_end(self, chunk_index):
-        return (self.context.recording_start
-                + datetime.timedelta(hours=chunk_index + 1))
 
     def _record_chunk(self, chunk_index, chunk_path):
         camera_id = self.camera_config.id
@@ -162,8 +169,8 @@ class Encoder:
         os.makedirs(os.path.dirname(partial_chunk_path), exist_ok=True)
 
         backend = make_backend(config)
-        target_frames = self._frames_for_chunk(chunk_index)
-        chunk_end = self._chunk_end(chunk_index)
+        target_frames = self._target_frames()
+        opened_index = chunk_index
         try:
             backend.open(
                 partial_chunk_path,
@@ -178,29 +185,39 @@ class Encoder:
             # retry loop. Write failure mid-chunk is handled below.
             self.context.metrics.incr(_METRIC_OPEN_FAILURES % camera_id)
             self.logger.exception(
-                "backend.open failed cam=%s chunk=%d -> raising",
+                "backend.open failed cam=%s index=%d",
                 camera_id, chunk_index)
             raise
 
+        self.context.metrics.gauge(_METRIC_DRAIN_PENDING % camera_id, 0)
         self.logger.info(
-            "opened chunk cam=%s idx=%d target=%d -> %s",
+            "opened chunk cam=%s index=%d target=%d path=%s",
             camera_id, chunk_index, target_frames, partial_chunk_path)
 
         frames_written = 0
         encode_ms_window_max = 0.0
+        last_soft_drain_log_at = 0.0
+        fps = config.encode.fps
         try:
-            while frames_written < target_frames and not self.context.drain.is_set():
-                if datetime.datetime.now() >= chunk_end:
+            while frames_written < target_frames and not self.context.hard_drain.is_set():
+                if self._current_chunk_index() != opened_index:
                     break
+                if self.context.drain.is_set():
+                    self.context.metrics.gauge(
+                        _METRIC_DRAIN_PENDING % camera_id, 1)
+                    now_mono = time.monotonic()
+                    if now_mono - last_soft_drain_log_at >= _SOFT_DRAIN_LOG_INTERVAL_S:
+                        eta_s = int(max(0, (target_frames - frames_written) / fps))
+                        self.logger.info(
+                            "soft drain pending cam=%s frames=%d/%d eta_s=%d",
+                            camera_id, frames_written, target_frames, eta_s)
+                        last_soft_drain_log_at = now_mono
                 try:
-                    slot_index, hardware_timestamp, _host_monotonic_ns = (
-                        self.data_queue.get(timeout=1.0))
+                    slot_index = self.data_queue.get(timeout=1.0)
                 except queue.Empty:
                     continue
 
                 try:
-                    if hardware_timestamp == 0:
-                        self.context.metrics.incr(_METRIC_SYNTHETIC % camera_id)
                     encode_start_mono = time.monotonic()
                     bgr_frame = cv2.cvtColor(
                         self.frame_ring.view(slot_index),
@@ -224,9 +241,10 @@ class Encoder:
         except WriterDied as writer_error:
             # Fail loud, keep the partial. close() flushes moov so what's
             # captured is playable; outer loop sees the .mp4 next iteration
-            # and enters discard mode for the rest of the hour.
+            # and enters idle mode until the next chunk boundary.
+            # Prometheus alert: enc_writer_failures_total rate > 0
             self.logger.error(
-                "WRITER DIED cam=%s chunk=%d at frame=%d/%d: %s",
+                "WRITER DIED cam=%s index=%d frame=%d/%d err=%s",
                 camera_id, chunk_index, frames_written, target_frames,
                 writer_error)
             self.context.metrics.incr(_METRIC_WRITER_FAILURES % camera_id)
@@ -235,32 +253,33 @@ class Encoder:
                 backend.close()
             except Exception:
                 self.logger.exception(
-                    "backend.close failed cam=%s chunk=%d",
+                    "backend.close failed cam=%s index=%d",
                     camera_id, chunk_index)
             if os.path.exists(partial_chunk_path):
                 try:
                     os.rename(partial_chunk_path, chunk_path)
                     self.logger.info(
-                        "FINALIZED %s frames=%d/%d",
+                        "finalized path=%s frames=%d/%d",
                         chunk_path, frames_written, target_frames)
                 except OSError:
                     self.logger.exception(
-                        "rename failed %s -> %s",
+                        "rename failed src=%s dst=%s",
                         partial_chunk_path, chunk_path)
 
-    def _discard_until_next_chunk(self, chunk_index):
+    def _idle_until_next_chunk(self, chunk_index):
         camera_id = self.camera_config.id
-        deadline = (
-            self.context.recording_start
-            + datetime.timedelta(hours=chunk_index + 1))
-        self.logger.warning(
-            "DISCARD MODE cam=%s chunk=%d already exists; waiting until %s",
-            camera_id, chunk_index, deadline)
+        self.logger.info(
+            "encoder idle cam=%s index=%d file exists, waiting for next chunk",
+            camera_id, chunk_index)
+        self.context.metrics.gauge(_METRIC_IDLE % camera_id, 1)
 
-        while not self.context.drain.is_set() and datetime.datetime.now() < deadline:
+        while (not self.context.drain.is_set()
+               and self._current_chunk_index() == chunk_index):
             try:
-                slot_index, _hw, _host = self.data_queue.get(timeout=0.5)
+                slot_index = self.data_queue.get(timeout=0.5)
             except queue.Empty:
                 continue
             self.frame_ring.release(slot_index)
-            self.context.metrics.incr(_METRIC_DISCARDED % camera_id)
+
+        self.context.metrics.gauge(_METRIC_IDLE % camera_id, 0)
+        self.logger.info("encoder resumed cam=%s", camera_id)

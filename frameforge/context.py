@@ -1,13 +1,19 @@
 """Shared worker dependencies, built once by the supervisor and passed to every
-worker. Holds the live config, a drain Event, the metrics registry, and the
-recording session identity (so every encoder lands on the same dir tree).
+worker. Holds the live config, two drain Events, the metrics registry, and
+the session_name (snapshotted at boot; per-day recording_start_str is
+derived later by the encoder per chunk open).
+
+Drain events follow the two-signal model from docs/deployment.md:
+- ``drain`` is set on SIGTERM. Encoder finishes the current chunk and then
+  exits. Acquisition keeps producing so the encoder has frames.
+- ``hard_drain`` is set on SIGINT (also sets ``drain``). Every worker exits
+  ASAP; encoder finalizes the partial .mp4 and stops.
 
 The metrics registry splits internally by type (counters vs gauges) so the
 Prometheus exporter knows how to emit each. All registry operations are
 defensive — a metrics failure must never propagate into the acq/encode loop.
 """
 
-import datetime
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -55,7 +61,6 @@ class MetricsRegistry:
 class Context:
     config: Config
     drain: Any
+    hard_drain: Any
     metrics: MetricsRegistry
     session_name: str
-    recording_start: datetime.datetime
-    recording_start_str: str

@@ -45,6 +45,8 @@ class PathsCfg:
 
 @dataclass
 class TransferCfg:
+    # mode: "smb_upload" (prod) or "local_reap" (isolated dev — analyze + delete)
+    mode: str = "smb_upload"
     smb_server: str = "pool1.vast.salk.edu"
     smb_share: str = "talmo"
     smb_root: str = "cdracos/frameforge_test"
@@ -60,6 +62,16 @@ class RecordingCfg:
 
 
 @dataclass
+class BroadcastCfg:
+    enabled: bool = True
+    backend: str = "libx264"
+    crf: int = 23
+    preset: str = "superfast"
+    rtsp_host: str = "127.0.0.1"
+    rtsp_port: int = 8554
+
+
+@dataclass
 class Config:
     cameras: List[CameraCfg]
     encode: EncodeCfg = field(default_factory=EncodeCfg)
@@ -67,6 +79,7 @@ class Config:
     paths: PathsCfg = field(default_factory=PathsCfg)
     transfer: TransferCfg = field(default_factory=TransferCfg)
     recording: RecordingCfg = field(default_factory=RecordingCfg)
+    broadcast: BroadcastCfg = field(default_factory=BroadcastCfg)
     width: int = 1280
     height: int = 1024
     channels: int = 1
@@ -90,10 +103,20 @@ class Config:
             raise ValueError("config: channels must be 1 or 3")
 
         transfer = self.transfer
-        if not transfer.smb_server or not transfer.smb_share:
-            raise ValueError("config: transfer.smb_server/smb_share required")
-        if transfer.scan_interval_s <= 0 or transfer.max_attempts_per_chunk < 1:
-            raise ValueError("config: transfer.scan_interval_s>0 and max_attempts_per_chunk>=1")
+        if transfer.mode not in ("smb_upload", "local_reap"):
+            raise ValueError(
+                "config: transfer.mode must be 'smb_upload' or 'local_reap'")
+        if transfer.scan_interval_s <= 0:
+            raise ValueError("config: transfer.scan_interval_s>0 required")
+        if transfer.mode == "smb_upload":
+            if not transfer.smb_server or not transfer.smb_share:
+                raise ValueError("config: transfer.smb_server/smb_share required")
+            if transfer.max_attempts_per_chunk < 1:
+                raise ValueError("config: transfer.max_attempts_per_chunk>=1")
+
+        broadcast = self.broadcast
+        if broadcast.enabled and not (0 <= broadcast.crf <= 51):
+            raise ValueError("config: broadcast.crf must be in 0..51 when enabled")
 
 
 def _env(name: str, default: Optional[str] = None) -> Optional[str]:
@@ -126,6 +149,7 @@ def load_config(path: Optional[str] = None) -> Config:
         paths=PathsCfg(**raw.get("paths", {})),
         transfer=TransferCfg(**raw.get("transfer", {})),
         recording=RecordingCfg(**raw.get("recording", {})),
+        broadcast=BroadcastCfg(**raw.get("broadcast", {})),
         width=raw.get("width", 1280),
         height=raw.get("height", 1024),
         channels=raw.get("channels", 1),

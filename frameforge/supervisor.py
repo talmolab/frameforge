@@ -17,11 +17,12 @@ import time
 from typing import List
 
 from .acquisition import Acquisition
+from .broadcast import Broadcast
 from .config import Config
 from .context import Context, MetricsRegistry
 from .encoder import Encoder
-from .eventbus import EventBus
 from .host_sampler import HostSampler
+from .local_reaper import LocalReaper
 from .metrics import Metrics
 from .shm_ring import FrameRing
 from .transfer import Transfer
@@ -29,7 +30,7 @@ from .transfer import Transfer
 logger = logging.getLogger("frameforge.supervisor")
 
 _BACKOFF_CAP_SECONDS = 30
-_DRAIN_JOIN_SECONDS = 60
+_DRAIN_JOIN_SECONDS = 3700
 
 _METRIC_WORKER_RESTARTS = "worker_restarts.%s"
 
@@ -56,30 +57,26 @@ class Supervisor:
         self.config = config
         self._manager = multiprocessing.Manager()
 
-        now = datetime.datetime.now()
-        recording_start = now.replace(minute=0, second=0, microsecond=0)
-        recording_start_str = recording_start.strftime("%Y-%m-%d-%H-%M-%S")
         session_name = config.recording.session_name or \
-            now.strftime("%Y-%m-%d") + "-Frameforge"
+            datetime.datetime.now().strftime("%Y-%m-%d") + "-Frameforge"
 
         self.context = Context(
             config=config,
             drain=multiprocessing.Event(),
+            hard_drain=multiprocessing.Event(),
             metrics=MetricsRegistry(
                 self._manager.dict(), self._manager.dict()),
             session_name=session_name,
-            recording_start=recording_start,
-            recording_start_str=recording_start_str,
         )
         self.workers: List[Worker] = []
         self._frame_rings: List[FrameRing] = []
         self._worker_pids = self._manager.dict()
 
-        logger.info("session=%s recording_start=%s",
-                    session_name, recording_start_str)
+        logger.info("session=%s", session_name)
 
     def build(self) -> None:
         config = self.config
+        broadcast_enabled = config.broadcast.enabled
 
         for camera in config.cameras:
             frame_ring = FrameRing(
@@ -87,16 +84,33 @@ class Supervisor:
             data_queue = multiprocessing.Queue(maxsize=config.queue_depth)
             self._frame_rings.append(frame_ring)
 
+            broadcast_ring = None
+            broadcast_queue = None
+            if broadcast_enabled:
+                broadcast_ring = FrameRing(
+                    4, config.height, config.width, config.channels)
+                broadcast_queue = multiprocessing.Queue(maxsize=8)
+                self._frame_rings.append(broadcast_ring)
+
             self.workers.append(Worker(
                 "acq:%s" % camera.id,
-                Acquisition(self.context, camera, frame_ring, data_queue)))
+                Acquisition(self.context, camera, frame_ring, data_queue,
+                            broadcast_ring, broadcast_queue)))
             self.workers.append(Worker(
                 "enc:%s" % camera.id,
                 Encoder(self.context, camera, frame_ring, data_queue)))
 
-        self.workers.append(Worker("transfer", Transfer(self.context)))
+            if broadcast_enabled:
+                self.workers.append(Worker(
+                    "bcast:%s" % camera.id,
+                    Broadcast(self.context, camera,
+                              broadcast_ring, broadcast_queue)))
+
+        if config.transfer.mode == "local_reap":
+            self.workers.append(Worker("transfer", LocalReaper(self.context)))
+        else:
+            self.workers.append(Worker("transfer", Transfer(self.context)))
         self.workers.append(Worker("metrics", Metrics(self.context)))
-        self.workers.append(Worker("eventbus", EventBus(self.context)))
         self.workers.append(Worker(
             "host_sampler", HostSampler(self.context, self._worker_pids)))
 
@@ -137,24 +151,36 @@ class Supervisor:
         self._shutdown()
 
     def _install_signals(self) -> None:
-        def handler(signum, _frame):
-            logger.info("signal %s received -> draining", signum)
+        def soft_handler(signum, _frame):
+            logger.info("signal %s received soft drain wait for chunk boundary",
+                        signum)
             self.context.drain.set()
-        signal.signal(signal.SIGTERM, handler)
-        signal.signal(signal.SIGINT, handler)
+
+        def hard_handler(signum, _frame):
+            logger.info("signal %s received hard drain immediate", signum)
+            self.context.drain.set()
+            self.context.hard_drain.set()
+
+        signal.signal(signal.SIGTERM, soft_handler)
+        signal.signal(signal.SIGINT, hard_handler)
 
     def _shutdown(self) -> None:
-        logger.info("draining: waiting up to %ds for workers to finalize",
+        logger.info("draining encoders will exit at next chunk boundary timeout=%ds",
                     _DRAIN_JOIN_SECONDS)
         deadline = time.time() + _DRAIN_JOIN_SECONDS
 
-        for worker in self.workers:
+        encoder_workers = [w for w in self.workers if w.name.startswith("enc:")]
+        for worker in encoder_workers:
             if worker.process is not None:
                 worker.process.join(timeout=max(1.0, deadline - time.time()))
 
         for worker in self.workers:
             if worker.alive():
-                logger.warning("force-terminating %s", worker.name)
+                logger.info("terminating %s", worker.name)
                 worker.process.terminate()
+
+        for worker in self.workers:
+            if worker.process is not None and worker.alive():
+                worker.process.join(timeout=5.0)
 
         logger.info("supervisor exit")

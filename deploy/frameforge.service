@@ -35,10 +35,16 @@ ExecStart=/usr/bin/python3 -m frameforge
 Restart=on-failure
 RestartSec=3
 
-# Supervisor's internal drain waits up to 60s for workers to finalize the
-# current chunk; give systemd a little slack on top of that.
+# Two-signal drain (see docs/deployment.md).
+#   SIGTERM -> soft drain: encoder finishes current chunk, then exits.
+#               `systemctl stop frameforge` can take up to ~1h.
+#   SIGINT  -> hard drain: immediate, partial mp4 finalized.
+#               Trigger via `systemctl kill -s INT frameforge`.
+# KillMode=mixed sends the signal only to the supervisor; child workers
+# react to the shared drain events, not to signals.
+KillMode=mixed
 KillSignal=SIGTERM
-TimeoutStopSec=90
+TimeoutStopSec=3700
 
 [Install]
 WantedBy=multi-user.target

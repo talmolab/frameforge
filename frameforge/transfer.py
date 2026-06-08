@@ -24,18 +24,21 @@ from typing import Optional, Tuple
 import smbclient
 
 from .context import Context
+from .log_utils import RateLimited
 
 
 _METRIC_UPLOADED      = "transfer.uploaded"
 _METRIC_FAILURES      = "transfer.failures"
 _METRIC_STUCK         = "transfer.stuck"
-_METRIC_FREE_BYTES    = "transfer.free_bytes"
+_METRIC_FREE_MB       = "transfer.free_mb"
 _METRIC_LOW_DISK      = "transfer.low_disk"
 _METRIC_SESSION_ALIVE = "transfer.session_alive"
 
 _SMB_PORT = 445
 _UPLOAD_BUFFER_BYTES = 4 * 1024 * 1024
 _DRAIN_POLL_INTERVAL_S = 0.5
+_LOW_DISK_LOG_INTERVAL_S = 600.0
+_SMB_FAIL_LOG_INTERVAL_S = 600.0
 
 
 class Transfer:
@@ -49,6 +52,8 @@ class Transfer:
         self._attempt_counts = {}
         self._stuck_already_logged = set()
         self._credentials: Optional[Tuple[str, str]] = None
+        self._low_disk_limiter = RateLimited(_LOW_DISK_LOG_INTERVAL_S)
+        self._smb_fail_limiter = RateLimited(_SMB_FAIL_LOG_INTERVAL_S)
 
     def run(self) -> None:
         self._credentials = self._load_credentials()
@@ -61,8 +66,7 @@ class Transfer:
 
         while not self.context.drain.is_set():
             if not self._session_alive:
-                if self._try_session():
-                    self._ensure_remote_tree()
+                self._try_session()
             else:
                 self._scan_and_upload()
 
@@ -90,15 +94,18 @@ class Transfer:
                 port=_SMB_PORT,
             )
             self._session_alive = True
+            self._smb_fail_limiter.reset()
             self.context.metrics.gauge(_METRIC_SESSION_ALIVE, 1)
             self.logger.info(
-                "SMB session registered to %s", self.config.smb_server)
+                "SMB session registered server=%s", self.config.smb_server)
             return True
         except Exception as session_error:
             self._session_alive = False
             self.context.metrics.gauge(_METRIC_SESSION_ALIVE, 0)
-            self.logger.error(
-                "SMB session registration failed: %s", session_error)
+            if self._smb_fail_limiter.should_log():
+                # Prometheus alert: transfer_session_alive == 0 for 5m
+                self.logger.error(
+                    "SMB session registration failed err=%s", session_error)
             return False
 
     def _close_session(self):
@@ -109,30 +116,12 @@ class Transfer:
         self._session_alive = False
         self.context.metrics.gauge(_METRIC_SESSION_ALIVE, 0)
 
-    def _ensure_remote_tree(self):
-        for camera in self.context.config.cameras:
-            remote_dir = self._remote_camera_dir(camera.id)
-            try:
-                smbclient.makedirs(remote_dir, exist_ok=True)
-            except Exception as makedirs_error:
-                self.logger.warning(
-                    "remote makedirs failed (%s): %s",
-                    remote_dir, makedirs_error)
-
     def _remote_root(self):
         return (
             "\\\\" + self.config.smb_server
             + "\\" + self.config.smb_share
             + "\\" + self.config.smb_root.replace("/", "\\")
         )
-
-    def _remote_camera_dir(self, camera_id):
-        return "\\".join([
-            self._remote_root(),
-            self.context.session_name,
-            camera_id,
-            self.context.recording_start_str,
-        ])
 
     def _local_to_remote(self, local_path):
         relative = os.path.relpath(local_path, self.scratch_dir)
@@ -164,6 +153,8 @@ class Transfer:
 
     def _upload_one(self, local_path):
         remote_path = self._local_to_remote(local_path)
+        remote_dir = remote_path.rsplit("\\", 1)[0]
+        smbclient.makedirs(remote_dir, exist_ok=True)
         with open(local_path, "rb") as local_file:
             with smbclient.open_file(remote_path, mode="wb") as remote_file:
                 shutil.copyfileobj(
@@ -177,23 +168,24 @@ class Transfer:
         self._attempt_counts.pop(local_path, None)
         self._stuck_already_logged.discard(local_path)
         self.context.metrics.incr(_METRIC_UPLOADED)
-        self.logger.info("uploaded %s", local_path)
+        self.logger.debug("uploaded path=%s", local_path)
 
     def _handle_upload_failure(self, local_path, error):
         self.context.metrics.incr(_METRIC_FAILURES)
         attempts = self._attempt_counts[local_path]
-        if attempts >= self.config.max_attempts_per_chunk:
+        max_attempts = self.config.max_attempts_per_chunk
+        if attempts >= max_attempts:
             if local_path not in self._stuck_already_logged:
+                # Prometheus alert: transfer_stuck > 0 for 10m
                 self.logger.error(
-                    "STUCK chunk after %d attempts: %s (%s)",
+                    "STUCK chunk attempts=%d path=%s err=%s",
                     attempts, local_path, error)
                 self._stuck_already_logged.add(local_path)
                 self.context.metrics.incr(_METRIC_STUCK)
-        else:
+        elif attempts == 1 or attempts % 5 == 0:
             self.logger.warning(
-                "upload failed (attempt %d/%d): %s (%s)",
-                attempts, self.config.max_attempts_per_chunk,
-                local_path, error)
+                "upload failed attempt=%d/%d path=%s err=%s",
+                attempts, max_attempts, local_path, error)
 
         # Treat any error as a possibly-broken session; outer loop reconnects.
         self._session_alive = False
@@ -204,16 +196,18 @@ class Transfer:
             disk_stat = os.statvfs(self.scratch_dir)
         except OSError:
             return
-        free_bytes = disk_stat.f_bavail * disk_stat.f_frsize
-        threshold_bytes = self.config.low_disk_threshold_mb * 1024 * 1024
-        self.context.metrics.gauge(_METRIC_FREE_BYTES, free_bytes)
-        if free_bytes < threshold_bytes:
-            self.logger.error(
-                "LOW DISK: %d bytes free on %s (threshold=%d MB)",
-                free_bytes, self.scratch_dir,
-                self.config.low_disk_threshold_mb)
+        free_mb = (disk_stat.f_bavail * disk_stat.f_frsize) // (1024 * 1024)
+        threshold_mb = self.config.low_disk_threshold_mb
+        # Prometheus alert: transfer_free_mb < <threshold>
+        self.context.metrics.gauge(_METRIC_FREE_MB, free_mb)
+        if free_mb < threshold_mb:
+            if self._low_disk_limiter.should_log():
+                self.logger.error(
+                    "LOW DISK free_mb=%d threshold_mb=%d path=%s",
+                    free_mb, threshold_mb, self.scratch_dir)
             self.context.metrics.gauge(_METRIC_LOW_DISK, 1)
         else:
+            self._low_disk_limiter.reset()
             self.context.metrics.gauge(_METRIC_LOW_DISK, 0)
 
     def _sleep_with_drain(self, seconds):
