@@ -28,12 +28,18 @@ WorkingDirectory=/home/charlie/Projects/frameforge
 Environment=FF_PROFILE=bench
 Environment=FF_SCRATCH=/home/charlie/Projects/frameforge/scratch
 Environment=FF_LOG_DIR=/home/charlie/Projects/frameforge/logs
+Environment=PROMETHEUS_MULTIPROC_DIR=/run/frameforge/prom
 EnvironmentFile=/etc/frameforge/secrets.env
+
+# /run/frameforge/prom is the mmap-file dir for prom_client multi-process
+# mode (workers write, metrics exporter aggregates). systemd creates +
+# cleans it; the supervisor also rm -rf's on start as belt-and-suspenders.
+RuntimeDirectory=frameforge/prom
+RuntimeDirectoryMode=0755
 
 ExecStart=/usr/bin/python3 -m frameforge
 
-Restart=on-failure
-RestartSec=3
+Restart=no
 
 # Two-signal drain (see docs/deployment.md).
 #   SIGTERM -> soft drain: encoder finishes current chunk, then exits.

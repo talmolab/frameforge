@@ -1,11 +1,7 @@
 """YAML config + env overrides, validated at load.
 
-- Python 3.6-safe (Jetson JetPack) via the ``dataclasses`` backport.
-- No silent default profile: caller must set ``FF_PROFILE=bench|prod`` (the YAML
-  ``config/<profile>.yaml`` is loaded) or ``FF_CONFIG=<path>`` for an explicit file.
-- Code defaults are neutral library minimums; deployment-specific values live
-  in the chosen YAML.
-- Secrets (SMB credentials) are NOT here; they're read by Transfer from env.
+Profile selection: ``FF_PROFILE=bench|prod`` picks ``config/<profile>.yaml``.
+Secrets (SMB credentials) live in env vars read by Transfer, not in YAML.
 """
 
 import os
@@ -24,41 +20,31 @@ class CameraCfg:
 
 @dataclass
 class EncodeCfg:
-    backend: str = "nvv4l2h265enc"
+    backend: str = "libx264"
     bitrate_mbps: float = 1.0
     fps: float = 50.0
     gop: int = 250
+    crf: int = 21
+    preset: str = "superfast"
+    chunk_seconds: int = 3600
 
 
 @dataclass
 class AcqCfg:
     packet_size: int = 1500
     inter_packet_delay_ns: int = 0
-    max_num_buffer: int = 64
+    max_num_buffer: int = 100
     retrieve_timeout_ms: int = 0
 
 
 @dataclass
-class PathsCfg:
-    scratch: str = "/var/lib/frameforge/scratch"
-
-
-@dataclass
 class TransferCfg:
-    # mode: "smb_upload" (prod) or "local_reap" (isolated dev — analyze + delete)
-    mode: str = "smb_upload"
     smb_server: str = "pool1.vast.salk.edu"
     smb_share: str = "talmo"
     smb_root: str = "cdracos/frameforge_test"
     scan_interval_s: float = 30.0
-    max_attempts_per_chunk: int = 30
     low_disk_threshold_mb: int = 500
-
-
-@dataclass
-class RecordingCfg:
-    # Must satisfy metadata_helper: ^\d{4}-\d{2}-\d{2}-\w+$
-    session_name: str = ""
+    analytics: bool = False
 
 
 @dataclass
@@ -76,10 +62,10 @@ class Config:
     cameras: List[CameraCfg]
     encode: EncodeCfg = field(default_factory=EncodeCfg)
     acq: AcqCfg = field(default_factory=AcqCfg)
-    paths: PathsCfg = field(default_factory=PathsCfg)
     transfer: TransferCfg = field(default_factory=TransferCfg)
-    recording: RecordingCfg = field(default_factory=RecordingCfg)
     broadcast: BroadcastCfg = field(default_factory=BroadcastCfg)
+    scratch_dir: str = "/var/lib/frameforge/scratch"
+    session_name: str = ""
     width: int = 1280
     height: int = 1024
     channels: int = 1
@@ -95,49 +81,36 @@ class Config:
             raise ValueError("config: duplicate camera ids")
 
         encode = self.encode
-        if encode.fps <= 0 or encode.bitrate_mbps <= 0:
-            raise ValueError("config: fps/bitrate_mbps must be > 0")
+        if encode.fps <= 0:
+            raise ValueError("config: encode.fps must be > 0")
+        if encode.backend not in ("libx264", "nvv4l2h265enc"):
+            raise ValueError(
+                "config: encode.backend must be 'libx264' or 'nvv4l2h265enc'")
+        if encode.chunk_seconds <= 0:
+            raise ValueError("config: encode.chunk_seconds must be > 0")
         if self.ring_slots < 2 or self.queue_depth < 1:
             raise ValueError("config: ring_slots>=2 and queue_depth>=1 required")
         if self.channels not in (1, 3):
             raise ValueError("config: channels must be 1 or 3")
 
         transfer = self.transfer
-        if transfer.mode not in ("smb_upload", "local_reap"):
-            raise ValueError(
-                "config: transfer.mode must be 'smb_upload' or 'local_reap'")
         if transfer.scan_interval_s <= 0:
             raise ValueError("config: transfer.scan_interval_s>0 required")
-        if transfer.mode == "smb_upload":
-            if not transfer.smb_server or not transfer.smb_share:
-                raise ValueError("config: transfer.smb_server/smb_share required")
-            if transfer.max_attempts_per_chunk < 1:
-                raise ValueError("config: transfer.max_attempts_per_chunk>=1")
-
-        broadcast = self.broadcast
-        if broadcast.enabled and not (0 <= broadcast.crf <= 51):
-            raise ValueError("config: broadcast.crf must be in 0..51 when enabled")
+        if not transfer.smb_server or not transfer.smb_share:
+            raise ValueError("config: transfer.smb_server/smb_share required")
 
 
 def _env(name: str, default: Optional[str] = None) -> Optional[str]:
     return os.environ.get(name, default)
 
 
-def _resolve_config_path() -> str:
-    explicit_path = _env("FF_CONFIG")
-    if explicit_path:
-        return explicit_path
-
-    profile = _env("FF_PROFILE")
-    if profile:
-        return os.path.join("config", profile + ".yaml")
-
-    raise ValueError(
-        "config: set FF_PROFILE=bench|prod or FF_CONFIG=<path>; neither was set")
-
-
 def load_config(path: Optional[str] = None) -> Config:
-    path = path or _resolve_config_path()
+    if path is None:
+        profile = _env("FF_PROFILE")
+        if not profile:
+            raise ValueError("config: set FF_PROFILE=bench|prod")
+        path = os.path.join("config", profile + ".yaml")
+
     with open(path) as raw_file:
         raw = yaml.safe_load(raw_file) or {}
 
@@ -146,10 +119,10 @@ def load_config(path: Optional[str] = None) -> Config:
         cameras=cameras,
         encode=EncodeCfg(**raw.get("encode", {})),
         acq=AcqCfg(**raw.get("acq", {})),
-        paths=PathsCfg(**raw.get("paths", {})),
         transfer=TransferCfg(**raw.get("transfer", {})),
-        recording=RecordingCfg(**raw.get("recording", {})),
         broadcast=BroadcastCfg(**raw.get("broadcast", {})),
+        scratch_dir=raw.get("scratch_dir", "/var/lib/frameforge/scratch"),
+        session_name=raw.get("session_name", ""),
         width=raw.get("width", 1280),
         height=raw.get("height", 1024),
         channels=raw.get("channels", 1),
@@ -158,7 +131,7 @@ def load_config(path: Optional[str] = None) -> Config:
         log_dir=raw.get("log_dir", "/var/log/frameforge"),
     )
 
-    if _env("FF_SCRATCH"):     config.paths.scratch       = _env("FF_SCRATCH")
+    if _env("FF_SCRATCH"):     config.scratch_dir         = _env("FF_SCRATCH")
     if _env("FF_LOG_DIR"):     config.log_dir             = _env("FF_LOG_DIR")
     if _env("FF_VAST_SERVER"): config.transfer.smb_server = _env("FF_VAST_SERVER")
     if _env("FF_VAST_SHARE"):  config.transfer.smb_share  = _env("FF_VAST_SHARE")

@@ -18,5 +18,4 @@ transfer:
   smb_share: talmo
   smb_root: cdracos/HCM_Sync/talmolab    # real production tree; replace with the right path
 
-paths:
-  scratch: /var/lib/frameforge/scratch
+scratch_dir: /var/lib/frameforge/scratch

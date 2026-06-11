@@ -16,23 +16,23 @@ import signal
 import time
 from typing import List
 
-from .acquisition import Acquisition
-from .broadcast import Broadcast
+from prometheus_client import multiprocess
+
 from .config import Config
-from .context import Context, MetricsRegistry
-from .encoder import Encoder
-from .host_sampler import HostSampler
-from .local_reaper import LocalReaper
-from .metrics import Metrics
+from .context import Context
+from ..metrics.defs import soft_drain_pending, worker_restarts
 from .shm_ring import FrameRing
-from .transfer import Transfer
+from ..workers.acquisition import Acquisition
+from ..workers.broadcast import Broadcast
+from ..workers.encoder import Encoder
+from ..workers.host_sampler import HostSampler
+from ..metrics.exposition import Metrics
+from ..workers.transfer import Transfer
 
 logger = logging.getLogger("frameforge.supervisor")
 
 _BACKOFF_CAP_SECONDS = 30
 _DRAIN_JOIN_SECONDS = 3700
-
-_METRIC_WORKER_RESTARTS = "worker_restarts.%s"
 
 
 class Worker:
@@ -57,15 +57,13 @@ class Supervisor:
         self.config = config
         self._manager = multiprocessing.Manager()
 
-        session_name = config.recording.session_name or \
+        session_name = config.session_name or \
             datetime.datetime.now().strftime("%Y-%m-%d") + "-Frameforge"
 
         self.context = Context(
             config=config,
             drain=multiprocessing.Event(),
             hard_drain=multiprocessing.Event(),
-            metrics=MetricsRegistry(
-                self._manager.dict(), self._manager.dict()),
             session_name=session_name,
         )
         self.workers: List[Worker] = []
@@ -106,10 +104,7 @@ class Supervisor:
                     Broadcast(self.context, camera,
                               broadcast_ring, broadcast_queue)))
 
-        if config.transfer.mode == "local_reap":
-            self.workers.append(Worker("transfer", LocalReaper(self.context)))
-        else:
-            self.workers.append(Worker("transfer", Transfer(self.context)))
+        self.workers.append(Worker("transfer", Transfer(self.context)))
         self.workers.append(Worker("metrics", Metrics(self.context)))
         self.workers.append(Worker(
             "host_sampler", HostSampler(self.context, self._worker_pids)))
@@ -117,6 +112,7 @@ class Supervisor:
     def run(self) -> None:
         self._install_signals()
         self.build()
+        soft_drain_pending.set(0)
 
         logger.info("starting %d workers (%d camera(s))",
                     len(self.workers), len(self.config.cameras))
@@ -133,15 +129,20 @@ class Supervisor:
                 if now_seconds < worker.next_restart_ok_at:
                     continue
 
+                dead_pid = worker.process.pid if worker.process else None
                 worker.restart_count += 1
-                self.context.metrics.gauge(
-                    _METRIC_WORKER_RESTARTS % worker.name, worker.restart_count)
+                worker_restarts.labels(worker=worker.name).inc()
                 backoff_seconds = min(
                     _BACKOFF_CAP_SECONDS, 2 ** min(worker.restart_count, 5))
                 worker.next_restart_ok_at = now_seconds + backoff_seconds
 
                 logger.warning("worker %s died (restart #%d); respawning",
                                worker.name, worker.restart_count)
+                if dead_pid is not None:
+                    try:
+                        multiprocess.mark_process_dead(dead_pid)
+                    except Exception:
+                        pass
                 worker.start()
                 self._worker_pids[worker.name] = worker.process.pid
                 logger.info("respawned %s pid=%s",
@@ -150,14 +151,19 @@ class Supervisor:
 
         self._shutdown()
 
+    # Two-signal drain: SIGTERM (`systemctl stop`) lets encoders finish
+    # the current chunk first; SIGINT (`systemctl kill -s INT`) bails the
+    # write loop immediately and finalizes whatever partial exists.
     def _install_signals(self) -> None:
         def soft_handler(signum, _frame):
             logger.info("signal %s received soft drain wait for chunk boundary",
                         signum)
+            soft_drain_pending.set(1)
             self.context.drain.set()
 
         def hard_handler(signum, _frame):
             logger.info("signal %s received hard drain immediate", signum)
+            soft_drain_pending.set(1)
             self.context.drain.set()
             self.context.hard_drain.set()
 
@@ -165,8 +171,11 @@ class Supervisor:
         signal.signal(signal.SIGINT, hard_handler)
 
     def _shutdown(self) -> None:
-        logger.info("draining encoders will exit at next chunk boundary timeout=%ds",
-                    _DRAIN_JOIN_SECONDS)
+        if self.context.hard_drain.is_set():
+            logger.info("hard drain: encoders exit immediately")
+        else:
+            logger.info("soft drain: encoders exit at next chunk boundary timeout=%ds",
+                        _DRAIN_JOIN_SECONDS)
         deadline = time.time() + _DRAIN_JOIN_SECONDS
 
         encoder_workers = [w for w in self.workers if w.name.startswith("enc:")]

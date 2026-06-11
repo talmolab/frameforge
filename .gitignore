@@ -1,5 +1,5 @@
 .venv-sleap/
 captures/
 bench/
-frameforge/__pycache__/
+__pycache__/
 *.pyc

@@ -2,13 +2,15 @@
 # Override paths via env: FF_VAST_DEST, FF_SCRATCH, FF_LOG_DIR.
 
 encode:
-  bitrate_mbps: 0.16  # ~72 MB/hr at 50 fps; tracks CRF 21 file-size target
+  backend: nvv4l2h265enc
+  bitrate_mbps: 0.5
+  chunk_seconds: 600
 
 transfer:
-  mode: local_reap    # isolated dev: analyze + delete (no SMB/wall)
+  analytics: true
 
 broadcast:
-  enabled: false      # Jetson GStreamer 1.14 lacks rtspclientsink; revisit on MS-01
+  enabled: false
 
 cameras:
   - id: cam_08
