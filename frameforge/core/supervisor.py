@@ -1,12 +1,11 @@
 """Builds the worker graph, spawns it, restarts crashed workers, drives a
 graceful drain on signal.
 
-- In-worker recovery handles *expected* failures (camera disconnect → black-
-  frame fill). Lives in acquisition.py because the no-drop guarantee needs the
-  worker to keep producing during disconnects.
-- This supervisor's watchdog handles *unexpected* failures (worker process
-  death). Exponential backoff respawn; the rest keep running.
-- Supervisor-level crashes are handled by systemd ``Restart=on-failure``.
+- Camera disconnect is handled in acquisition.py via close → wait → reopen.
+- This supervisor's watchdog handles *unexpected* worker process death:
+  exponential backoff respawn; the rest keep running.
+- Supervisor-level crashes are handled by systemd (``Restart=no`` today; we
+  own the restart policy).
 """
 
 import datetime
@@ -14,7 +13,6 @@ import logging
 import multiprocessing
 import signal
 import time
-from typing import List
 
 from prometheus_client import multiprocess
 
@@ -33,6 +31,13 @@ logger = logging.getLogger("frameforge.supervisor")
 
 _BACKOFF_CAP_SECONDS = 30
 _DRAIN_JOIN_SECONDS = 3700
+
+
+class WorkerFailure(RuntimeError):
+    def __init__(self, name: str, exitcode: int) -> None:
+        super().__init__(f"worker {name!r} exitcode={exitcode}")
+        self.worker_name = name
+        self.exitcode = exitcode
 
 
 class Worker:
@@ -66,8 +71,8 @@ class Supervisor:
             hard_drain=multiprocessing.Event(),
             session_name=session_name,
         )
-        self.workers: List[Worker] = []
-        self._frame_rings: List[FrameRing] = []
+        self.workers: list[Worker] = []
+        self._frame_rings: list[FrameRing] = []
         self._worker_pids = self._manager.dict()
 
         logger.info("session=%s", session_name)
@@ -192,4 +197,18 @@ class Supervisor:
             if worker.process is not None and worker.alive():
                 worker.process.join(timeout=5.0)
 
+        failures = [
+            WorkerFailure(w.name, w.process.exitcode)
+            for w in self.workers
+            if w.process is not None and w.process.exitcode not in (None, 0)
+        ]
+
+        try:
+            self._manager.shutdown()
+        except Exception:
+            logger.exception("manager.shutdown failed")
+
         logger.info("supervisor exit")
+
+        if failures:
+            raise ExceptionGroup("worker shutdown failures", failures)

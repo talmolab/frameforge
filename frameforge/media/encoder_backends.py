@@ -1,4 +1,4 @@
-"""Media backends: shared ABC + ffmpeg subprocess + NVENC GStreamer + encoder factory.
+"""Media backends: shared ABC + ffmpeg subprocess + encoder factory.
 
 ``FfmpegBackend`` is generic over codec args + output target; broadcast.py
 uses it for RTSP, this file's factory uses it for filesink recording.
@@ -7,8 +7,6 @@ uses it for RTSP, this file's factory uses it for filesink recording.
 import abc
 import os
 import subprocess
-
-import cv2
 
 from ..core.config import Config
 
@@ -117,60 +115,20 @@ class FfmpegBackend(MediaBackend):
             self._stderr_path = None
 
 
-class GStreamerNvencH265Backend(MediaBackend):
-    _PIPELINE_TEMPLATE = (
-        "appsrc ! video/x-raw,format=BGR ! videoconvert "
-        "! video/x-raw,format=BGRx ! nvvidconv "
-        "! nvv4l2h265enc bitrate={bitrate} control-rate=1 "
-        "iframeinterval={gop} insert-sps-pps=1 maxperf-enable=1 "
-        "! h265parse ! qtmux faststart=true ! filesink location=\"{path}\""
-    )
-
-    def __init__(self, *, bitrate_bps: int, gop: int) -> None:
-        self._bitrate_bps = bitrate_bps
-        self._gop = gop
-        self._writer = None
-
-    def open(self, target, *, width, height, fps) -> None:
-        pipeline = self._PIPELINE_TEMPLATE.format(
-            bitrate=self._bitrate_bps, gop=self._gop, path=target)
-
-        self._writer = cv2.VideoWriter(
-            pipeline, cv2.CAP_GSTREAMER, 0,
-            float(fps), (width, height), True)
-        if not self._writer.isOpened():
-            raise RuntimeError("GStreamer pipeline failed to open: " + pipeline)
-
-    def write(self, frame_gray) -> bool:
-        if self._writer is None or not self._writer.isOpened():
-            return False
-        bgr = cv2.cvtColor(frame_gray, cv2.COLOR_GRAY2BGR)
-        self._writer.write(bgr)
-        return self._writer.isOpened()
-
-    def close(self) -> None:
-        if self._writer is not None:
-            self._writer.release()
-            self._writer = None
-
-
 def make_encoder_backend(config: Config) -> MediaBackend:
     encode = config.encode
-    if encode.backend == "libx264":
-        return FfmpegBackend(
-            codec_args=[
-                "-c:v", "libx264",
-                "-preset", encode.preset,
-                "-crf", str(encode.crf),
-                "-pix_fmt", "yuv420p",
-                "-g", str(encode.gop),
-                "-movflags", "+faststart",
-            ],
-            output_format="mp4",
-        )
-    if encode.backend == "nvv4l2h265enc":
-        return GStreamerNvencH265Backend(
-            bitrate_bps=int(encode.bitrate_mbps * 1_000_000),
-            gop=encode.gop,
-        )
-    raise ValueError("unknown encode.backend: " + encode.backend)
+    match encode.backend:
+        case "libx264":
+            return FfmpegBackend(
+                codec_args=[
+                    "-c:v", "libx264",
+                    "-preset", encode.preset,
+                    "-crf", str(encode.crf),
+                    "-pix_fmt", "yuv420p",
+                    "-g", str(encode.gop),
+                    "-movflags", "+faststart",
+                ],
+                output_format="mp4",
+            )
+        case _:
+            raise ValueError(f"unknown encode.backend: {encode.backend}")

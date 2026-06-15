@@ -6,19 +6,18 @@ Secrets (SMB credentials) live in env vars read by Transfer, not in YAML.
 
 import os
 from dataclasses import dataclass, field
-from typing import List, Optional
 
 import yaml
 
 
-@dataclass
+@dataclass(slots=True)
 class CameraCfg:
     id: str
     serial: str = ""
     pfs: str = ""
 
 
-@dataclass
+@dataclass(slots=True)
 class EncodeCfg:
     backend: str = "libx264"
     bitrate_mbps: float = 1.0
@@ -29,7 +28,7 @@ class EncodeCfg:
     chunk_seconds: int = 3600
 
 
-@dataclass
+@dataclass(slots=True)
 class AcqCfg:
     packet_size: int = 1500
     inter_packet_delay_ns: int = 0
@@ -37,7 +36,7 @@ class AcqCfg:
     retrieve_timeout_ms: int = 0
 
 
-@dataclass
+@dataclass(slots=True)
 class TransferCfg:
     smb_server: str = "pool1.vast.salk.edu"
     smb_share: str = "talmo"
@@ -47,19 +46,20 @@ class TransferCfg:
     analytics: bool = False
 
 
-@dataclass
+@dataclass(slots=True)
 class BroadcastCfg:
     enabled: bool = True
     backend: str = "libx264"
     crf: int = 23
     preset: str = "superfast"
+    bitrate_mbps: float = 1.0
     rtsp_host: str = "127.0.0.1"
     rtsp_port: int = 8554
 
 
-@dataclass
+@dataclass(slots=True)
 class Config:
-    cameras: List[CameraCfg]
+    cameras: list[CameraCfg]
     encode: EncodeCfg = field(default_factory=EncodeCfg)
     acq: AcqCfg = field(default_factory=AcqCfg)
     transfer: TransferCfg = field(default_factory=TransferCfg)
@@ -83,9 +83,8 @@ class Config:
         encode = self.encode
         if encode.fps <= 0:
             raise ValueError("config: encode.fps must be > 0")
-        if encode.backend not in ("libx264", "nvv4l2h265enc"):
-            raise ValueError(
-                "config: encode.backend must be 'libx264' or 'nvv4l2h265enc'")
+        if encode.backend != "libx264":
+            raise ValueError("config: encode.backend must be 'libx264'")
         if encode.chunk_seconds <= 0:
             raise ValueError("config: encode.chunk_seconds must be > 0")
         if self.ring_slots < 2 or self.queue_depth < 1:
@@ -100,15 +99,15 @@ class Config:
             raise ValueError("config: transfer.smb_server/smb_share required")
 
 
-def _env(name: str, default: Optional[str] = None) -> Optional[str]:
+def _env(name: str, default: str | None = None) -> str | None:
     return os.environ.get(name, default)
 
 
-def load_config(path: Optional[str] = None) -> Config:
+def load_config(path: str | None = None) -> Config:
     if path is None:
         profile = _env("FF_PROFILE")
         if not profile:
-            raise ValueError("config: set FF_PROFILE=bench|prod")
+            raise ValueError("config: set FF_PROFILE=msone")
         path = os.path.join("config", profile + ".yaml")
 
     with open(path) as raw_file:

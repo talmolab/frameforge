@@ -97,7 +97,7 @@ class Acquisition:
         pylon_camera.StartGrabbing(pylon.GrabStrategy_OneByOne)
         try:
             while not self.context.hard_drain.is_set():
-                loop_start_mono = time.monotonic()
+                loop_start_ns = time.monotonic_ns()
                 try:
                     result = pylon_camera.RetrieveResult(
                         retrieve_timeout_ms,
@@ -139,7 +139,7 @@ class Acquisition:
                 finally:
                     result.Release()
 
-                loop_ms = (time.monotonic() - loop_start_mono) * 1000.0
+                loop_ms = (time.monotonic_ns() - loop_start_ns) / 1_000_000.0
                 loop_ms_sampler.observe(loop_ms)
 
                 iteration_count += 1

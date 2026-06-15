@@ -13,7 +13,6 @@ Python 3.6-safe: uses ``multiprocessing.RawArray`` (not 3.8+ ``shared_memory``).
 
 import ctypes
 import multiprocessing
-from typing import Tuple
 
 import numpy as np
 
@@ -35,7 +34,7 @@ class FrameRing:
             self._free_indices.put(index)
 
     @property
-    def shape(self) -> Tuple[int, ...]:
+    def shape(self) -> tuple[int, ...]:
         if self.channels == 1:
             return (self.height, self.width)
         return (self.height, self.width, self.channels)
@@ -48,9 +47,8 @@ class FrameRing:
 
     def view(self, slot_index: int) -> np.ndarray:
         offset = slot_index * self.slot_bytes
-        flat = np.frombuffer(self._buffer, dtype=np.uint8,
-                             count=self.slot_bytes, offset=offset)
-        return flat.reshape(self.shape)
+        return np.ndarray(self.shape, dtype=np.uint8,
+                          buffer=self._buffer, offset=offset)
 
     def free_count(self) -> int:
         try:

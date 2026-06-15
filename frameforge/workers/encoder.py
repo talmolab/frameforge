@@ -99,13 +99,13 @@ class Encoder:
                     continue
 
                 try:
-                    encode_start_mono = time.monotonic()
+                    encode_start_ns = time.monotonic_ns()
                     if not backend.write(self.frame_ring.view(slot_index)):
                         raise WriterDied("backend.write returned False")
 
-                    encode_seconds = time.monotonic() - encode_start_mono
-                    metric_encode_hist.observe(encode_seconds)
-                    encode_ms_sampler.observe(encode_seconds * 1000.0)
+                    encode_ns = time.monotonic_ns() - encode_start_ns
+                    metric_encode_hist.observe(encode_ns / 1_000_000_000.0)
+                    encode_ms_sampler.observe(encode_ns / 1_000_000.0)
 
                     frames_written += 1
                 finally:

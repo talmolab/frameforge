@@ -22,20 +22,35 @@ _SAMPLE_EVERY_N_FRAMES = 50
 
 def make_broadcast_backend(config: Config) -> MediaBackend:
     bcast = config.broadcast
-    if bcast.backend == "libx264":
-        return FfmpegBackend(
-            codec_args=[
-                "-c:v", "libx264",
-                "-preset", bcast.preset,
-                "-crf", str(bcast.crf),
-                "-pix_fmt", "yuv420p",
-                "-tune", "zerolatency",
-            ],
-            output_format="rtsp",
-            extra_output_args=("-rtsp_transport", "tcp"),
-            capture_stderr=False,
-        )
-    raise ValueError("unknown broadcast.backend: " + bcast.backend)
+    match bcast.backend:
+        case "libx264":
+            return FfmpegBackend(
+                codec_args=[
+                    "-c:v", "libx264",
+                    "-preset", bcast.preset,
+                    "-crf", str(bcast.crf),
+                    "-pix_fmt", "yuv420p",
+                    "-tune", "zerolatency",
+                ],
+                output_format="rtsp",
+                extra_output_args=("-rtsp_transport", "tcp"),
+                capture_stderr=False,
+            )
+        case "hevc_qsv":
+            return FfmpegBackend(
+                codec_args=[
+                    "-c:v", "hevc_qsv",
+                    "-preset", "veryfast",
+                    "-b:v", str(int(bcast.bitrate_mbps * 1_000_000)),
+                    "-look_ahead", "0",
+                    "-pix_fmt", "nv12",
+                ],
+                output_format="rtsp",
+                extra_output_args=("-rtsp_transport", "tcp"),
+                capture_stderr=False,
+            )
+        case _:
+            raise ValueError(f"unknown broadcast.backend: {bcast.backend}")
 
 
 class Broadcast:
@@ -95,11 +110,11 @@ class Broadcast:
                 continue
 
             try:
-                encode_start_mono = time.monotonic()
+                encode_start_ns = time.monotonic_ns()
                 backend.write(self.broadcast_ring.view(slot_index))
 
-                encode_seconds = time.monotonic() - encode_start_mono
-                metric_encode_hist.observe(encode_seconds)
-                encode_ms_sampler.observe(encode_seconds * 1000.0)
+                encode_ns = time.monotonic_ns() - encode_start_ns
+                metric_encode_hist.observe(encode_ns / 1_000_000_000.0)
+                encode_ms_sampler.observe(encode_ns / 1_000_000.0)
             finally:
                 self.broadcast_ring.release(slot_index)

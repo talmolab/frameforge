@@ -19,7 +19,7 @@ from typing import Any
 from .config import Config
 
 
-@dataclass
+@dataclass(slots=True)
 class Context:
     config: Config
     drain: Any

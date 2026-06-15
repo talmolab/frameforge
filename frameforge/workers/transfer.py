@@ -5,7 +5,6 @@ import os
 import subprocess
 import time
 from dataclasses import dataclass, field
-from typing import Dict, Set
 
 from ..core.context import Context
 from ..media.smb_session import SmbSession
@@ -24,10 +23,10 @@ _FFPROBE_TIMEOUT_S = 10.0
 _MAX_UPLOAD_ATTEMPTS = 30
 
 
-@dataclass
+@dataclass(slots=True)
 class UploadState:
-    attempt_counts: Dict[str, int] = field(default_factory=dict)
-    stuck_already_logged: Set[str] = field(default_factory=set)
+    attempt_counts: dict[str, int] = field(default_factory=dict)
+    stuck_already_logged: set[str] = field(default_factory=set)
 
     def attempt(self, path: str) -> int:
         self.attempt_counts[path] = self.attempt_counts.get(path, 0) + 1
@@ -125,8 +124,8 @@ class Transfer:
         finalized.sort()
         return finalized
 
-    def _analyze(self, path) -> Dict[str, str]:
-        info: Dict[str, str] = {}
+    def _analyze(self, path) -> dict[str, str]:
+        info: dict[str, str] = {}
         try:
             size_mb = os.path.getsize(path) / (1024 * 1024)
         except OSError:
@@ -141,8 +140,7 @@ class Transfer:
                  "stream=nb_frames,duration,avg_frame_rate,codec_name",
                  "-of", "csv=p=0",
                  path],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                universal_newlines=True,
+                capture_output=True, text=True,
                 timeout=_FFPROBE_TIMEOUT_S, check=True,
             )
         except (subprocess.SubprocessError, OSError, FileNotFoundError):

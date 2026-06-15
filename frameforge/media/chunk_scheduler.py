@@ -2,6 +2,10 @@
 
 import datetime
 import os
+from zoneinfo import ZoneInfo
+
+
+_TZ = ZoneInfo("America/Los_Angeles")
 
 
 class ChunkScheduler:
@@ -29,11 +33,11 @@ class ChunkScheduler:
     def target_frames(self, fps: float) -> int:
         return int(round(self.chunk_seconds * fps))
 
-    # `_aware` form supplies the local-TZ datetime anchor for
+    # `_aware` form supplies the explicit-LA-TZ datetime anchor for
     # elapsed-seconds math; `_str` form is the recording_start directory
     # name. Kept separate so chunk_index math uses real datetimes.
     def _today_midnight_aware(self):
-        now = datetime.datetime.now().astimezone()
+        now = datetime.datetime.now(_TZ)
         return now.replace(hour=0, minute=0, second=0, microsecond=0)
 
     def _today_midnight_str(self) -> str:
