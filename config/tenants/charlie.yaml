@@ -1,0 +1,8 @@
+transfer:
+  smb_server: pool1.vast.salk.edu
+  smb_share: talmo
+  smb_root: cdracos/frameforge_test
+  analytics: true
+
+encode:
+  chunk_seconds: 600

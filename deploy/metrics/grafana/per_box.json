@@ -1,0 +1,293 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {"type": "grafana", "uid": "-- Grafana --"},
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "title": "Health",
+      "type": "row",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
+      "id": 1,
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "title": "sv_soft_drain_pending",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 4, "x": 0, "y": 1},
+      "id": 2,
+      "targets": [{"expr": "sv_soft_drain_pending", "refId": "A"}],
+      "options": {"colorMode": "background", "graphMode": "none", "textMode": "value"},
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "red", "value": 1}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "transfer_session_alive",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 4, "x": 4, "y": 1},
+      "id": 3,
+      "targets": [{"expr": "transfer_session_alive", "refId": "A"}],
+      "options": {"colorMode": "background", "graphMode": "none"},
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "green", "value": 1}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "bcast_session_alive (per cam)",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 4, "x": 8, "y": 1},
+      "id": 4,
+      "targets": [{"expr": "bcast_session_alive", "refId": "A", "legendFormat": "{{cam}}"}],
+      "options": {"colorMode": "background", "graphMode": "none"}
+    },
+    {
+      "title": "acq_camera_alive (per cam)",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 4, "x": 12, "y": 1},
+      "id": 23,
+      "targets": [{"expr": "acq_camera_alive", "refId": "A", "legendFormat": "{{cam}}"}],
+      "options": {"colorMode": "background", "graphMode": "none"}
+    },
+    {
+      "title": "sv_worker_restarts (rate 5m)",
+      "type": "timeseries",
+      "gridPos": {"h": 4, "w": 8, "x": 16, "y": 1},
+      "id": 5,
+      "targets": [{"expr": "rate(sv_worker_restarts_total[5m])", "refId": "A", "legendFormat": "{{worker}}"}]
+    },
+    {
+      "title": "transfer_session_prefix",
+      "type": "stat",
+      "gridPos": {"h": 3, "w": 24, "x": 0, "y": 5},
+      "id": 24,
+      "targets": [{"expr": "transfer_session_prefix", "refId": "A", "legendFormat": "{{prefix}}"}],
+      "options": {"colorMode": "none", "graphMode": "none", "textMode": "name"}
+    },
+    {
+      "title": "Acquisition",
+      "type": "row",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 8},
+      "id": 6,
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "title": "acq_loop_ms_max (per cam)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 9},
+      "id": 7,
+      "targets": [{"expr": "acq_loop_ms_max", "refId": "A", "legendFormat": "{{cam}}"}]
+    },
+    {
+      "title": "Frame loss (rate 1m)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 9},
+      "id": 8,
+      "targets": [
+        {"expr": "rate(acq_missed_frames_total[1m])", "refId": "A", "legendFormat": "missed {{cam}}"},
+        {"expr": "rate(acq_overrun_drops_total[1m])", "refId": "B", "legendFormat": "overrun {{cam}}"},
+        {"expr": "rate(acq_incomplete_total[1m])", "refId": "C", "legendFormat": "incomplete {{cam}}"}
+      ]
+    },
+    {
+      "title": "acq_loop_duration quantiles (per cam)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 17},
+      "id": 25,
+      "targets": [
+        {"expr": "histogram_quantile(0.5, sum by (cam,le) (rate(acq_loop_duration_seconds_bucket[1m]))) * 1000", "refId": "A", "legendFormat": "p50 {{cam}}"},
+        {"expr": "histogram_quantile(0.99, sum by (cam,le) (rate(acq_loop_duration_seconds_bucket[1m]))) * 1000", "refId": "B", "legendFormat": "p99 {{cam}}"}
+      ]
+    },
+    {
+      "title": "acq_enc_queue_depth + acq_enc_ring_free (per cam)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 17},
+      "id": 9,
+      "targets": [
+        {"expr": "acq_enc_queue_depth", "refId": "A", "legendFormat": "queue {{cam}}"},
+        {"expr": "acq_enc_ring_free", "refId": "B", "legendFormat": "ring_free {{cam}}"}
+      ]
+    },
+    {
+      "title": "Encoder",
+      "type": "row",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 25},
+      "id": 10,
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "title": "enc_encode_ms quantiles (per cam)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 26},
+      "id": 11,
+      "targets": [
+        {"expr": "histogram_quantile(0.5, sum by (cam,le) (rate(enc_encode_duration_seconds_bucket[1m]))) * 1000", "refId": "A", "legendFormat": "p50 {{cam}}"},
+        {"expr": "histogram_quantile(0.99, sum by (cam,le) (rate(enc_encode_duration_seconds_bucket[1m]))) * 1000", "refId": "B", "legendFormat": "p99 {{cam}}"}
+      ]
+    },
+    {
+      "title": "Encoder fps (rate 1m)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 26},
+      "id": 12,
+      "targets": [{"expr": "rate(enc_encode_duration_seconds_count[1m])", "refId": "A", "legendFormat": "{{cam}}"}]
+    },
+    {
+      "title": "enc_idle + enc_writer_failures + enc_open_failures",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 34},
+      "id": 13,
+      "targets": [
+        {"expr": "enc_idle", "refId": "A", "legendFormat": "idle {{cam}}"},
+        {"expr": "rate(enc_writer_failures_total[5m])", "refId": "B", "legendFormat": "writer_fail {{cam}}"},
+        {"expr": "rate(enc_open_failures_total[5m])", "refId": "C", "legendFormat": "open_fail {{cam}}"}
+      ]
+    },
+    {
+      "title": "Broadcast",
+      "type": "row",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 42},
+      "id": 14,
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "title": "bcast_encode_ms_max + bcast_encode_ms_last (per cam)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 43},
+      "id": 15,
+      "targets": [
+        {"expr": "bcast_encode_ms_max", "refId": "A", "legendFormat": "max {{cam}}"},
+        {"expr": "bcast_encode_ms_last", "refId": "B", "legendFormat": "last {{cam}}"}
+      ]
+    },
+    {
+      "title": "Transfer",
+      "type": "row",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 51},
+      "id": 17,
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "title": "transfer uploads (increase 1h)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 52},
+      "id": 18,
+      "targets": [
+        {"expr": "increase(transfer_uploaded_total[1h])", "refId": "A", "legendFormat": "uploaded/1h"},
+        {"expr": "increase(transfer_failures_total[1h])", "refId": "B", "legendFormat": "failed/1h"},
+        {"expr": "increase(transfer_stuck_total[1h])", "refId": "C", "legendFormat": "stuck/1h"}
+      ]
+    },
+    {
+      "title": "transfer_free_mb + transfer_low_disk",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 52},
+      "id": 19,
+      "targets": [
+        {"expr": "transfer_free_mb", "refId": "A", "legendFormat": "free_mb"},
+        {"expr": "transfer_low_disk * 1000", "refId": "B", "legendFormat": "low_disk_x1000"}
+      ]
+    },
+    {
+      "title": "Host + per-worker",
+      "type": "row",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 60},
+      "id": 20,
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "title": "host_cpu_busy_ratio + host_load_avg_1m",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 61},
+      "id": 21,
+      "targets": [
+        {"expr": "host_cpu_busy_ratio", "refId": "A", "legendFormat": "cpu_busy_ratio"},
+        {"expr": "host_load_avg_1m", "refId": "B", "legendFormat": "load_1m"}
+      ]
+    },
+    {
+      "title": "host_mem_available_mb",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 61},
+      "id": 22,
+      "targets": [{"expr": "host_mem_available_mb", "refId": "A", "legendFormat": "host_avail_mb"}]
+    },
+    {
+      "title": "worker_rss_mb (per worker)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 69},
+      "id": 26,
+      "targets": [{"expr": "worker_rss_mb", "refId": "A", "legendFormat": "{{worker}}"}]
+    },
+    {
+      "title": "worker_rss_mb summed per cam",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 69},
+      "id": 27,
+      "targets": [{"expr": "sum by (cam) (label_replace(worker_rss_mb, \"cam\", \"$1\", \"worker\", \".*:(.*)\"))", "refId": "A", "legendFormat": "{{cam}}"}]
+    },
+    {
+      "title": "worker_rss_mb summed per worker type (acq/enc/bcast)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 77},
+      "id": 28,
+      "targets": [{"expr": "sum by (type) (label_replace(worker_rss_mb, \"type\", \"$1\", \"worker\", \"(acq|enc|bcast).*\"))", "refId": "A", "legendFormat": "{{type}}"}]
+    },
+    {
+      "title": "worker_cpu_user_seconds (rate 1m, per worker)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 77},
+      "id": 29,
+      "targets": [{"expr": "rate(worker_cpu_user_seconds[1m])", "refId": "A", "legendFormat": "{{worker}}"}]
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 38,
+  "tags": ["frameforge"],
+  "templating": {"list": []},
+  "time": {"from": "now-30m", "to": "now"},
+  "timepicker": {},
+  "timezone": "America/Los_Angeles",
+  "title": "frameforge — per-box",
+  "uid": "frameforge-per-box",
+  "version": 2,
+  "weekStart": ""
+}

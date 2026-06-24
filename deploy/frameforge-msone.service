@@ -1,29 +1,4 @@
-# systemd unit for frameforge on MS-01 (msone profile).
-#
-# Install:
-#   sudo cp deploy/frameforge-msone.service /etc/systemd/system/frameforge.service
-#   sudo systemctl daemon-reload && sudo systemctl enable --now frameforge
-#
-# Prerequisites (one-time):
-#   sudo useradd -r -s /usr/sbin/nologin talmolab     # or add to existing group
-#   sudo install -d -m 755 -o talmolab -g talmolab /usr/local/lib/frameforge
-#   sudo install -d -m 755 -o talmolab -g talmolab /var/lib/frameforge/scratch
-#   sudo install -d -m 755 -o talmolab -g talmolab /var/log/frameforge
-#   # Mount NVMe at /var/lib/frameforge/scratch via /etc/fstab.
-#   # Persist sysctl: /etc/sysctl.d/99-frameforge.conf with
-#   #   net.core.rmem_max=33554432
-#   #   net.core.rmem_default=33554432
-#
-# Secrets:
-#   sudo install -d -m 700 /etc/frameforge
-#   sudoedit /etc/frameforge/secrets.env       # chmod 600
-#
-#     VAST_USER=cdracos
-#     VAST_PASS=...
-#
-# Logs:
-#   journalctl -u frameforge -f
-#   tail -f /var/log/frameforge/frameforge.log
+# Install + bringup: see deploy/SETUP.md
 
 [Unit]
 Description=frameforge camera acquisition (MS-01)
@@ -36,14 +11,9 @@ User=talmolab
 Group=talmolab
 WorkingDirectory=/usr/local/lib/frameforge
 
-Environment=FF_PROFILE=msone
-Environment=FF_SCRATCH=/var/lib/frameforge/scratch
-Environment=FF_LOG_DIR=/var/log/frameforge
-Environment=PROMETHEUS_MULTIPROC_DIR=/run/frameforge/prom
+Environment=FF_HARDWARE=ms01
 EnvironmentFile=/etc/frameforge/secrets.env
 
-# /run/frameforge/prom is the mmap-file dir for prom_client multi-process
-# mode (workers write, metrics exporter aggregates).
 RuntimeDirectory=frameforge/prom
 RuntimeDirectoryMode=0755
 
@@ -51,11 +21,9 @@ ExecStart=/usr/local/lib/frameforge/.venv/bin/python3 -m frameforge
 
 Restart=no
 
-# Two-signal drain.
-#   SIGTERM -> soft drain: encoder finishes current chunk, then exits.
-#               `systemctl stop frameforge` can take up to chunk_seconds.
-#   SIGINT  -> hard drain: immediate, partial mp4 finalized.
-#               Trigger via `systemctl kill -s INT frameforge`.
+# Two-signal drain:
+#   SIGTERM (systemctl stop)        -> soft, finish current chunk (up to chunk_seconds)
+#   SIGINT  (systemctl kill -s INT) -> hard, finalize partial mp4 immediately
 KillMode=mixed
 KillSignal=SIGTERM
 TimeoutStopSec=3700

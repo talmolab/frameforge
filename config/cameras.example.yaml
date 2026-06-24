@@ -1,0 +1,7 @@
+cameras:
+  - {id: cam_01, serial: "23456789"}
+  - {id: cam_02, serial: "23456790"}
+  - {id: cam_03, serial: "23456791"}
+  - {id: cam_04, serial: "23456792"}
+  - {id: cam_05, serial: "23456793"}
+  - {id: cam_06, serial: "23456794"}

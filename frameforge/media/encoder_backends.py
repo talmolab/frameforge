@@ -8,7 +8,7 @@ import abc
 import os
 import subprocess
 
-from ..core.config import Config
+from ..config import Config
 
 
 class WriterDied(RuntimeError):
@@ -20,7 +20,7 @@ class MediaBackend(abc.ABC):
     def open(self, target: str, *, width: int, height: int, fps: float) -> None: ...
 
     @abc.abstractmethod
-    def write(self, frame_gray) -> bool: ...
+    def write(self, frame) -> bool: ...
 
     @abc.abstractmethod
     def close(self) -> None: ...
@@ -70,11 +70,11 @@ class FfmpegBackend(MediaBackend):
             stdout=subprocess.DEVNULL, stderr=stderr_dest)
         self._stdin = self._process.stdin
 
-    def write(self, frame_gray) -> bool:
+    def write(self, frame) -> bool:
         if self._stdin is None:
             return False
         try:
-            self._stdin.write(frame_gray.tobytes())
+            self._stdin.write(frame.tobytes())
             return True
         except (BrokenPipeError, OSError):
             return False
@@ -117,18 +117,15 @@ class FfmpegBackend(MediaBackend):
 
 def make_encoder_backend(config: Config) -> MediaBackend:
     encode = config.encode
-    match encode.backend:
-        case "libx264":
-            return FfmpegBackend(
-                codec_args=[
-                    "-c:v", "libx264",
-                    "-preset", encode.preset,
-                    "-crf", str(encode.crf),
-                    "-pix_fmt", "yuv420p",
-                    "-g", str(encode.gop),
-                    "-movflags", "+faststart",
-                ],
-                output_format="mp4",
-            )
-        case _:
-            raise ValueError(f"unknown encode.backend: {encode.backend}")
+    return FfmpegBackend(
+        codec_args=[
+            "-c:v", "libx264",
+            "-preset", encode.preset,
+            "-crf", str(encode.crf),
+            "-pix_fmt", "yuv420p",
+            "-g", str(encode.gop),
+            "-bf", "0",
+            "-movflags", "+faststart",
+        ],
+        output_format="mp4",
+    )

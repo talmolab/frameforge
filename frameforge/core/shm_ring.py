@@ -1,7 +1,5 @@
 """Shared-memory frame ring for zero-copy hand-off between processes.
 
-Python 3.6-safe: uses ``multiprocessing.RawArray`` (not 3.8+ ``shared_memory``).
-
 - A fixed pool of frame-sized slots lives in one shared buffer.
 - A free-list queue tracks which slots are available; it's the back-pressure
   point — when the encoder is behind, acquisition blocks on ``get_free`` and

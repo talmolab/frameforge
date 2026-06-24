@@ -6,40 +6,37 @@ import queue
 import time
 
 from ..media.chunk_scheduler import ChunkScheduler
-from ..core.config import CameraCfg
-from ..core.context import Context
+from ..context import Context
+from ..core.paths import SCRATCH_DIR
 from ..media.encoder_backends import WriterDied, make_encoder_backend
-from ..metrics.helpers import WindowMaxSampler
 from ..metrics.defs import (
     enc_encode_duration_seconds,
-    enc_encode_ms_last,
-    enc_encode_ms_max,
     enc_idle,
     enc_open_failures,
     enc_writer_failures,
 )
 from ..core.shm_ring import FrameRing
 
-_SAMPLE_EVERY_N_FRAMES = 50
+_QUEUE_GET_TIMEOUT_S = 1.0
 
 
 class Encoder:
-    def __init__(self, context: Context, camera_config: CameraCfg,
+    def __init__(self, context: Context, camera_id: str,
                  frame_ring: FrameRing, data_queue) -> None:
         self.context = context
-        self.camera_config = camera_config
+        self.camera_id = camera_id
         self.frame_ring = frame_ring
         self.data_queue = data_queue
         self.logger = logging.getLogger("frameforge.encoder")
         self.scheduler = ChunkScheduler(
-            scratch_dir=context.config.scratch_dir,
+            scratch_dir=SCRATCH_DIR,
             session_name=context.session_name,
-            camera_id=camera_config.id,
+            camera_id=camera_id,
             chunk_seconds=context.config.encode.chunk_seconds,
         )
 
     def run(self) -> None:
-        camera_id = self.camera_config.id
+        camera_id = self.camera_id
         self.logger.info(
             "encoder %s starting session=%s",
             camera_id, self.context.session_name)
@@ -55,7 +52,7 @@ class Encoder:
             self.logger.info("encoder %s stopping", camera_id)
 
     def _record_chunk(self, chunk_index, chunk_path):
-        camera_id = self.camera_config.id
+        camera_id = self.camera_id
         config = self.context.config
         partial_chunk_path = chunk_path + ".part"
         os.makedirs(os.path.dirname(partial_chunk_path), exist_ok=True)
@@ -66,7 +63,7 @@ class Encoder:
         try:
             backend.open(
                 partial_chunk_path,
-                width=config.width, height=config.height,
+                width=config.acq.width, height=config.acq.height,
                 fps=config.encode.fps,
             )
         except Exception:
@@ -77,11 +74,6 @@ class Encoder:
             raise
 
         metric_encode_hist = enc_encode_duration_seconds.labels(cam=camera_id)
-        encode_ms_sampler = WindowMaxSampler(
-            every=_SAMPLE_EVERY_N_FRAMES,
-            gauge_last=enc_encode_ms_last.labels(cam=camera_id),
-            gauge_max=enc_encode_ms_max.labels(cam=camera_id),
-        )
 
         self.logger.info(
             "opened chunk cam=%s index=%d target=%d path=%s",
@@ -94,7 +86,7 @@ class Encoder:
                     break
 
                 try:
-                    slot_index = self.data_queue.get(timeout=1.0)
+                    slot_index = self.data_queue.get(timeout=_QUEUE_GET_TIMEOUT_S)
                 except queue.Empty:
                     continue
 
@@ -105,12 +97,10 @@ class Encoder:
 
                     encode_ns = time.monotonic_ns() - encode_start_ns
                     metric_encode_hist.observe(encode_ns / 1_000_000_000.0)
-                    encode_ms_sampler.observe(encode_ns / 1_000_000.0)
 
                     frames_written += 1
                 finally:
                     self.frame_ring.release(slot_index)
-
         except WriterDied as writer_error:
             self.logger.error(
                 "WRITER DIED cam=%s index=%d frame=%d/%d err=%s",
@@ -137,7 +127,7 @@ class Encoder:
                         partial_chunk_path, chunk_path)
 
     def _idle_until_next_chunk(self, chunk_index):
-        camera_id = self.camera_config.id
+        camera_id = self.camera_id
         metric_idle = enc_idle.labels(cam=camera_id)
 
         self.logger.info(
@@ -148,7 +138,7 @@ class Encoder:
         while (not self.context.drain.is_set()
                and self.scheduler.current_chunk_index() == chunk_index):
             try:
-                slot_index = self.data_queue.get(timeout=0.5)
+                slot_index = self.data_queue.get(timeout=_QUEUE_GET_TIMEOUT_S)
             except queue.Empty:
                 continue
             self.frame_ring.release(slot_index)

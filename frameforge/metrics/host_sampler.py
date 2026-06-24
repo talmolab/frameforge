@@ -1,6 +1,6 @@
 """Per-process + host-level stats sampler.
 
-- Per-worker: proc_rss_mb{worker}, proc_cpu_user_seconds{worker}
+- Per-worker: worker_rss_mb{worker}, worker_cpu_user_seconds{worker}
 - Host-level: host_mem_available_mb, host_load_avg_1m, host_cpu_busy_ratio
 """
 
@@ -8,13 +8,13 @@ import logging
 import os
 import time
 
-from ..core.context import Context
-from ..metrics.defs import (
+from ..context import Context
+from .defs import (
     host_cpu_busy_ratio,
     host_load_avg_1m,
     host_mem_available_mb,
-    proc_cpu_user_seconds,
-    proc_rss_mb,
+    worker_cpu_user_seconds,
+    worker_rss_mb,
 )
 
 
@@ -45,11 +45,11 @@ class HostSampler:
                 continue
             rss_bytes = _read_rss_bytes(pid)
             if rss_bytes is not None:
-                proc_rss_mb.labels(worker=worker_name).set(
+                worker_rss_mb.labels(worker=worker_name).set(
                     round(rss_bytes / _BYTES_PER_MB, 4))
             cpu_user_seconds = _read_cpu_user_seconds(pid)
             if cpu_user_seconds is not None:
-                proc_cpu_user_seconds.labels(worker=worker_name).set(
+                worker_cpu_user_seconds.labels(worker=worker_name).set(
                     round(cpu_user_seconds, 4))
 
     def _sample_host(self):

@@ -1,0 +1,189 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {"type": "grafana", "uid": "-- Grafana --"},
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "title": "Fleet health",
+      "type": "row",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
+      "id": 1,
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "title": "Rigs reporting",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 4, "x": 0, "y": 1},
+      "id": 2,
+      "targets": [{"expr": "count(count by (instance) (frameforge_uptime_seconds))", "refId": "A"}],
+      "options": {"colorMode": "value", "graphMode": "none"}
+    },
+    {
+      "title": "Rigs in soft drain",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 4, "x": 4, "y": 1},
+      "id": 3,
+      "targets": [{"expr": "sum(sv_soft_drain_pending)", "refId": "A"}],
+      "options": {"colorMode": "background", "graphMode": "none"},
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "orange", "value": 1}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Rigs with SMB session down",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 4, "x": 8, "y": 1},
+      "id": 4,
+      "targets": [{"expr": "sum(transfer_session_alive == 0)", "refId": "A"}],
+      "options": {"colorMode": "background", "graphMode": "none"},
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "red", "value": 1}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Cameras disconnected across fleet",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 4, "x": 12, "y": 1},
+      "id": 5,
+      "targets": [{"expr": "sum(acq_camera_alive == 0)", "refId": "A"}],
+      "options": {"colorMode": "background", "graphMode": "none"},
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "red", "value": 1}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Fleet uploads (rate 5m)",
+      "type": "timeseries",
+      "gridPos": {"h": 4, "w": 8, "x": 16, "y": 1},
+      "id": 6,
+      "targets": [
+        {"expr": "sum(rate(transfer_uploaded_total[5m]))", "refId": "A", "legendFormat": "uploaded/s"},
+        {"expr": "sum(rate(transfer_failures_total[5m]))", "refId": "B", "legendFormat": "failed/s"}
+      ]
+    },
+    {
+      "title": "Per-rig",
+      "type": "row",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 5},
+      "id": 7,
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "title": "Per-rig: cameras alive",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6},
+      "id": 8,
+      "targets": [{"expr": "sum by (instance) (acq_camera_alive)", "refId": "A", "legendFormat": "{{instance}}"}]
+    },
+    {
+      "title": "Per-rig: frame loss (acq_missed_frames + overrun_drops + incomplete, rate 5m)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6},
+      "id": 9,
+      "targets": [{"expr": "sum by (instance) (rate(acq_missed_frames_total[5m]) + rate(acq_overrun_drops_total[5m]) + rate(acq_incomplete_total[5m]))", "refId": "A", "legendFormat": "{{instance}}"}]
+    },
+    {
+      "title": "Per-rig: encoder fps total",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 14},
+      "id": 10,
+      "targets": [{"expr": "sum by (instance) (rate(enc_encode_duration_seconds_count[1m]))", "refId": "A", "legendFormat": "{{instance}}"}]
+    },
+    {
+      "title": "Per-rig: scratch free_mb",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 14},
+      "id": 11,
+      "targets": [{"expr": "transfer_free_mb", "refId": "A", "legendFormat": "{{instance}}"}]
+    },
+    {
+      "title": "Per-rig: host_cpu_busy_ratio",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 22},
+      "id": 12,
+      "targets": [{"expr": "host_cpu_busy_ratio", "refId": "A", "legendFormat": "{{instance}}"}]
+    },
+    {
+      "title": "Per-rig: host_load_avg_1m",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 22},
+      "id": 13,
+      "targets": [{"expr": "host_load_avg_1m", "refId": "A", "legendFormat": "{{instance}}"}]
+    },
+    {
+      "title": "Per-rig: host_mem_available_mb",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 30},
+      "id": 14,
+      "targets": [{"expr": "host_mem_available_mb", "refId": "A", "legendFormat": "{{instance}}"}]
+    },
+    {
+      "title": "Per-rig: worker restarts (rate 1h)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 30},
+      "id": 15,
+      "targets": [{"expr": "sum by (instance) (rate(sv_worker_restarts_total[1h]))", "refId": "A", "legendFormat": "{{instance}}"}]
+    },
+    {
+      "title": "Per-rig: SMB session prefixes",
+      "type": "stat",
+      "gridPos": {"h": 6, "w": 24, "x": 0, "y": 38},
+      "id": 16,
+      "targets": [{"expr": "transfer_session_prefix", "refId": "A", "legendFormat": "{{instance}}: {{prefix}}"}],
+      "options": {"colorMode": "none", "graphMode": "none", "textMode": "name"}
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "tags": ["frameforge", "fleet"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "timepicker": {},
+  "timezone": "America/Los_Angeles",
+  "title": "frameforge — fleet",
+  "uid": "frameforge-fleet",
+  "version": 1,
+  "weekStart": ""
+}

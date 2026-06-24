@@ -3,8 +3,7 @@
 Multi-process aggregation: each worker writes to mmap files under
 ``$PROMETHEUS_MULTIPROC_DIR``; ``MultiProcessCollector`` aggregates them
 at scrape time. Build info + uptime are exposed via a tiny custom
-collector. Built-in ``ProcessCollector`` and ``PlatformCollector`` add
-exporter-process resource usage and Python version info.
+collector. ``PlatformCollector`` adds Python version info.
 """
 
 import logging
@@ -13,14 +12,13 @@ import time
 from prometheus_client import (
     CollectorRegistry,
     PlatformCollector,
-    ProcessCollector,
     start_http_server,
 )
 from prometheus_client.core import GaugeMetricFamily
 from prometheus_client.multiprocess import MultiProcessCollector
 
 from .. import __version__
-from ..core.context import Context
+from ..context import Context
 
 
 _BUILD_INFO = "frameforge_build_info"
@@ -39,7 +37,6 @@ class Metrics:
     def run(self) -> None:
         registry = CollectorRegistry()
         MultiProcessCollector(registry)
-        ProcessCollector(registry=registry)
         PlatformCollector(registry=registry)
         registry.register(_MetaCollector(self._started_at_monotonic))
 

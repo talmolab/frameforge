@@ -8,20 +8,18 @@ import numpy as np
 from pypylon import genicam, pylon
 
 from ..media.camera import Camera
-from ..core.config import CameraCfg
-from ..core.context import Context
-from ..metrics.helpers import WindowMaxSampler
+from ..config import CameraCfg
+from ..context import Context
+from ..core.logging_setup import DEDUP_KEY
+from ..core.shm_ring import FrameRing
 from ..metrics.defs import (
+    acq_enc_queue_depth,
+    acq_enc_ring_free,
     acq_incomplete,
-    acq_loop_ms_last,
-    acq_loop_ms_max,
+    acq_loop_duration_seconds,
     acq_missed_frames,
     acq_overrun_drops,
-    acq_queue_depth,
-    acq_ring_free,
-    bcast_dropped,
 )
-from ..core.shm_ring import FrameRing
 
 _SLOT_ACQUIRE_TIMEOUT_S = 1.0
 _RECONNECT_INTERVAL_S = 1.0
@@ -82,14 +80,9 @@ class Acquisition:
         data_queue = self.data_queue
         retrieve_timeout_ms = self.camera.retrieve_timeout_ms
 
-        metric_queue_depth = acq_queue_depth.labels(cam=camera_id)
-        metric_ring_free = acq_ring_free.labels(cam=camera_id)
-        metric_bcast_dropped = bcast_dropped.labels(cam=camera_id)
-        loop_ms_sampler = WindowMaxSampler(
-            every=_SAMPLE_EVERY_N_FRAMES,
-            gauge_last=acq_loop_ms_last.labels(cam=camera_id),
-            gauge_max=acq_loop_ms_max.labels(cam=camera_id),
-        )
+        metric_queue_depth = acq_enc_queue_depth.labels(cam=camera_id)
+        metric_ring_free = acq_enc_ring_free.labels(cam=camera_id)
+        metric_loop_hist = acq_loop_duration_seconds.labels(cam=camera_id)
 
         iteration_count = 0
         last_block_id = None
@@ -107,26 +100,33 @@ class Acquisition:
 
                 try:
                     if not result.GrabSucceeded():
-                        acq_incomplete.inc(
-                            latest=(result.GetErrorCode(),
-                                    result.GetErrorDescription()),
-                            cam=camera_id)
+                        acq_incomplete.labels(cam=camera_id).inc()
+                        self.logger.warning(
+                            "incomplete frames cam=%s code=%s msg=%s",
+                            camera_id, result.GetErrorCode(),
+                            result.GetErrorDescription(),
+                            extra={DEDUP_KEY: ("acq_incomplete", camera_id)})
                         continue
 
                     block_id = result.GetBlockID()
                     if last_block_id is not None:
                         gap = block_id - last_block_id - 1
                         if gap > 0:
-                            for _ in range(gap):
-                                acq_missed_frames.inc(
-                                    latest=(gap,), cam=camera_id)
+                            acq_missed_frames.labels(cam=camera_id).inc(gap)
+                            self.logger.warning(
+                                "missed frames cam=%s gap=%d",
+                                camera_id, gap,
+                                extra={DEDUP_KEY: ("acq_missed_frames", camera_id)})
                     last_block_id = block_id
 
                     try:
                         slot_index = frame_ring.get_free(
                             timeout=_SLOT_ACQUIRE_TIMEOUT_S)
                     except queue.Empty:
-                        acq_overrun_drops.inc(cam=camera_id)
+                        acq_overrun_drops.labels(cam=camera_id).inc()
+                        self.logger.warning(
+                            "ring full, dropping frames cam=%s", camera_id,
+                            extra={DEDUP_KEY: ("acq_overrun_drops", camera_id)})
                         continue
 
                     frame_array = result.GetArray()
@@ -135,12 +135,12 @@ class Acquisition:
 
                     if (self.broadcast_ring is not None
                             and iteration_count % _BROADCAST_SUBSAMPLE_EVERY == 0):
-                        self._tee_broadcast(frame_array, metric_bcast_dropped)
+                        self._tee_broadcast(frame_array)
                 finally:
                     result.Release()
 
-                loop_ms = (time.monotonic_ns() - loop_start_ns) / 1_000_000.0
-                loop_ms_sampler.observe(loop_ms)
+                loop_ns = time.monotonic_ns() - loop_start_ns
+                metric_loop_hist.observe(loop_ns / 1_000_000_000.0)
 
                 iteration_count += 1
                 if iteration_count % _SAMPLE_EVERY_N_FRAMES == 0:
@@ -152,18 +152,16 @@ class Acquisition:
             except Exception:
                 pass
 
-    def _tee_broadcast(self, frame_array, metric_bcast_dropped):
+    def _tee_broadcast(self, frame_array):
         try:
             bcast_slot = self.broadcast_ring.get_free(timeout=0)
         except queue.Empty:
-            metric_bcast_dropped.inc()
             return
         try:
             np.copyto(self.broadcast_ring.view(bcast_slot), frame_array)
             self.broadcast_queue.put_nowait(bcast_slot)
         except queue.Full:
             self.broadcast_ring.release(bcast_slot)
-            metric_bcast_dropped.inc()
 
 
 # macOS multiprocessing.Queue.qsize() raises NotImplementedError; -1 is

@@ -10,7 +10,7 @@ import shutil
 
 import smbclient
 
-from ..metrics.helpers import RateLimited
+from ..core.logging_setup import DEDUP_INTERVAL_S, DEDUP_KEY
 from ..metrics.defs import transfer_session_alive
 
 _SMB_PORT = 445
@@ -34,7 +34,6 @@ class SmbSession:
                 "smb_session: VAST_USER/VAST_PASS env vars are required")
 
         self._alive = False
-        self._fail_limiter = RateLimited(_SMB_FAIL_LOG_INTERVAL_S)
 
     @property
     def alive(self) -> bool:
@@ -54,13 +53,13 @@ class SmbSession:
         except Exception as session_error:
             self._alive = False
             transfer_session_alive.set(0)
-            if self._fail_limiter.should_log():
-                self.logger.error(
-                    "SMB session registration failed err=%s", session_error)
+            self.logger.error(
+                "SMB session registration failed err=%s", session_error,
+                extra={DEDUP_KEY: "smb_register_fail",
+                       DEDUP_INTERVAL_S: _SMB_FAIL_LOG_INTERVAL_S})
             return False
 
         self._alive = True
-        self._fail_limiter.reset()
         transfer_session_alive.set(1)
         self.logger.info("SMB session registered server=%s", self.server)
         return True

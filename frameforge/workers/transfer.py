@@ -2,77 +2,75 @@
 
 import logging
 import os
+import random
 import subprocess
 import time
 from dataclasses import dataclass, field
 
-from ..core.context import Context
+from ..context import Context
+from ..core.logging_setup import DEDUP_INTERVAL_S, DEDUP_KEY
+from ..core.paths import SCRATCH_DIR
 from ..media.smb_session import SmbSession
-from ..metrics.helpers import RateLimited
 from ..metrics.defs import (
+    transfer_discarded,
     transfer_failures,
     transfer_free_mb,
     transfer_low_disk,
-    transfer_stuck,
+    transfer_session_prefix,
     transfer_uploaded,
 )
 
-_DRAIN_POLL_INTERVAL_S = 0.5
-_LOW_DISK_LOG_INTERVAL_S = 600.0
+_DRAIN_POLL_INTERVAL_S = 1.0
+_LOW_DISK_LOG_INTERVAL_S = 300.0
 _FFPROBE_TIMEOUT_S = 10.0
 _MAX_UPLOAD_ATTEMPTS = 30
+_SCAN_INTERVAL_S = 30.0
+_SCAN_JITTER_S = 10.0
 
 
 @dataclass(slots=True)
 class UploadState:
     attempt_counts: dict[str, int] = field(default_factory=dict)
-    stuck_already_logged: set[str] = field(default_factory=set)
 
     def attempt(self, path: str) -> int:
         self.attempt_counts[path] = self.attempt_counts.get(path, 0) + 1
         return self.attempt_counts[path]
 
-    def succeed(self, path: str) -> None:
+    def clear(self, path: str) -> None:
         self.attempt_counts.pop(path, None)
-        self.stuck_already_logged.discard(path)
-
-    def mark_stuck(self, path: str) -> bool:
-        if path in self.stuck_already_logged:
-            return False
-        self.stuck_already_logged.add(path)
-        return True
 
 
 class Transfer:
     def __init__(self, context: Context) -> None:
         self.context = context
-        self.config = context.config.transfer
-        self.scratch_dir = context.config.scratch_dir
+        self.transfer_config = context.config.transfer
+        self.scratch_dir = SCRATCH_DIR
         self.logger = logging.getLogger("frameforge.transfer")
 
         self.session = SmbSession(
-            server=self.config.smb_server,
-            share=self.config.smb_share,
-            root=self.config.smb_root,
+            server=self.transfer_config.smb_server,
+            share=self.transfer_config.smb_share,
+            root=self.transfer_config.smb_root,
             scratch_dir=self.scratch_dir,
         )
         self._uploads = UploadState()
-        self._low_disk_limiter = RateLimited(_LOW_DISK_LOG_INTERVAL_S)
 
     def run(self) -> None:
+        prefix = "//%s/%s/%s/%s" % (
+            self.transfer_config.smb_server, self.transfer_config.smb_share,
+            self.transfer_config.smb_root, self.context.session_name)
+        transfer_session_prefix.labels(prefix=prefix).set(1)
+
         self.logger.info(
-            "transfer starting (target=//%s/%s/%s analytics=%s)",
-            self.config.smb_server,
-            self.config.smb_share,
-            self.config.smb_root,
-            self.config.analytics,
-        )
+            "transfer starting (target=%s analytics=%s)",
+            prefix, self.transfer_config.analytics)
 
         while not self.context.drain.is_set():
             if self.session.ensure_open():
                 self._scan_and_upload()
             self._check_disk()
-            self._sleep_with_drain(self.config.scan_interval_s)
+            self._sleep_with_drain(
+                _SCAN_INTERVAL_S + random.uniform(0, _SCAN_JITTER_S))
 
         self.session.close()
         self.logger.info("transfer stopping")
@@ -82,7 +80,7 @@ class Transfer:
             if self.context.drain.is_set():
                 return
 
-            if self.config.analytics:
+            if self.transfer_config.analytics:
                 info = self._analyze(local_path)
                 relative = os.path.relpath(local_path, self.scratch_dir)
                 info_str = " ".join(
@@ -95,15 +93,21 @@ class Transfer:
             except Exception as upload_error:
                 transfer_failures.inc()
                 if attempts >= _MAX_UPLOAD_ATTEMPTS:
-                    if self._uploads.mark_stuck(local_path):
-                        self.logger.error(
-                            "STUCK chunk attempts=%d path=%s err=%s",
-                            attempts, local_path, upload_error)
-                        transfer_stuck.inc()
-                elif attempts == 1 or attempts % 5 == 0:
+                    self.logger.error(
+                        "DISCARDING chunk attempts=%d path=%s err=%s",
+                        attempts, local_path, upload_error)
+                    try:
+                        os.remove(local_path)
+                    except OSError:
+                        self.logger.exception(
+                            "could not delete unrecoverable %s", local_path)
+                    self._uploads.clear(local_path)
+                    transfer_discarded.inc()
+                else:
                     self.logger.warning(
                         "upload failed attempt=%d/%d path=%s err=%s",
-                        attempts, _MAX_UPLOAD_ATTEMPTS, local_path, upload_error)
+                        attempts, _MAX_UPLOAD_ATTEMPTS, local_path, upload_error,
+                        extra={DEDUP_KEY: ("upload_fail", local_path)})
                 self.session.mark_dead()
                 return
 
@@ -111,13 +115,13 @@ class Transfer:
                 os.remove(local_path)
             except OSError:
                 self.logger.exception("could not delete uploaded %s", local_path)
-            self._uploads.succeed(local_path)
+            self._uploads.clear(local_path)
             transfer_uploaded.inc()
             self.logger.debug("uploaded path=%s", local_path)
 
     def _find_finalized_chunks(self):
         finalized = []
-        for directory, _subdirs, filenames in os.walk(self.scratch_dir):
+        for directory, _, filenames in os.walk(self.scratch_dir):
             for filename in filenames:
                 if filename.endswith(".mp4"):
                     finalized.append(os.path.join(directory, filename))
@@ -155,12 +159,6 @@ class Transfer:
         info["frames"] = frames or "?"
         info["duration_s"] = duration or "?"
         info["fps"] = fps or "?"
-        try:
-            duration_f = float(duration)
-            if duration_f > 0:
-                info["bitrate_mbps"] = "%.2f" % ((size_mb * 8) / duration_f)
-        except ValueError:
-            pass
         return info
 
     def _check_disk(self):
@@ -170,17 +168,17 @@ class Transfer:
             return
 
         free_mb = (disk_stat.f_bavail * disk_stat.f_frsize) // (1024 * 1024)
-        threshold_mb = self.config.low_disk_threshold_mb
+        threshold_mb = self.transfer_config.low_disk_threshold_mb
         transfer_free_mb.set(free_mb)
 
         if free_mb < threshold_mb:
-            if self._low_disk_limiter.should_log():
-                self.logger.error(
-                    "LOW DISK free_mb=%d threshold_mb=%d path=%s",
-                    free_mb, threshold_mb, self.scratch_dir)
+            self.logger.error(
+                "LOW DISK free_mb=%d threshold_mb=%d path=%s",
+                free_mb, threshold_mb, self.scratch_dir,
+                extra={DEDUP_KEY: "transfer_low_disk",
+                       DEDUP_INTERVAL_S: _LOW_DISK_LOG_INTERVAL_S})
             transfer_low_disk.set(1)
         else:
-            self._low_disk_limiter.reset()
             transfer_low_disk.set(0)
 
     def _sleep_with_drain(self, seconds):

@@ -16,45 +16,24 @@ import time
 
 from prometheus_client import multiprocess
 
-from .config import Config
-from .context import Context
-from ..metrics.defs import soft_drain_pending, worker_restarts
+from .hardware import get_hardware_spec
 from .shm_ring import FrameRing
+from ..config import Config
+from ..context import Context
+from ..metrics.defs import sv_soft_drain_pending, sv_worker_restarts
+from ..metrics.exposition import Metrics
+from ..metrics.host_sampler import HostSampler
 from ..workers.acquisition import Acquisition
 from ..workers.broadcast import Broadcast
 from ..workers.encoder import Encoder
-from ..workers.host_sampler import HostSampler
-from ..metrics.exposition import Metrics
 from ..workers.transfer import Transfer
+from ..workers.worker import Worker, WorkerFailure
 
 logger = logging.getLogger("frameforge.supervisor")
 
 _BACKOFF_CAP_SECONDS = 30
-_DRAIN_JOIN_SECONDS = 3700
-
-
-class WorkerFailure(RuntimeError):
-    def __init__(self, name: str, exitcode: int) -> None:
-        super().__init__(f"worker {name!r} exitcode={exitcode}")
-        self.worker_name = name
-        self.exitcode = exitcode
-
-
-class Worker:
-    def __init__(self, name: str, instance) -> None:
-        self.name = name
-        self.instance = instance
-        self.process = None
-        self.restart_count = 0
-        self.next_restart_ok_at = 0.0
-
-    def start(self) -> None:
-        self.process = multiprocessing.Process(
-            target=self.instance.run, name=self.name, daemon=False)
-        self.process.start()
-
-    def alive(self) -> bool:
-        return self.process is not None and self.process.is_alive()
+_DRAIN_JOIN_SLACK_SECONDS = 100
+_BROADCAST_RING_SLOTS = 24
 
 
 class Supervisor:
@@ -62,8 +41,8 @@ class Supervisor:
         self.config = config
         self._manager = multiprocessing.Manager()
 
-        session_name = config.session_name or \
-            datetime.datetime.now().strftime("%Y-%m-%d") + "-Frameforge"
+        session_name = config.session_name or (
+            datetime.datetime.now().strftime("%Y-%m-%d") + config.session_postfix)
 
         self.context = Context(
             config=config,
@@ -80,44 +59,57 @@ class Supervisor:
     def build(self) -> None:
         config = self.config
         broadcast_enabled = config.broadcast.enabled
+        acq = config.acq
+        pin_for = get_hardware_spec(config.hardware).pin_function
 
-        for camera in config.cameras:
+        for cam_index, camera in enumerate(config.cameras):
             frame_ring = FrameRing(
-                config.ring_slots, config.height, config.width, config.channels)
-            data_queue = multiprocessing.Queue(maxsize=config.queue_depth)
+                acq.ring_slots, acq.height, acq.width, acq.channels)
+            data_queue = multiprocessing.Queue(maxsize=acq.ring_slots * 2)
             self._frame_rings.append(frame_ring)
 
             broadcast_ring = None
             broadcast_queue = None
             if broadcast_enabled:
                 broadcast_ring = FrameRing(
-                    4, config.height, config.width, config.channels)
+                    _BROADCAST_RING_SLOTS, acq.height, acq.width, acq.channels)
                 broadcast_queue = multiprocessing.Queue(maxsize=8)
                 self._frame_rings.append(broadcast_ring)
 
+            acq_name = "acq:%s" % camera.id
+            enc_name = "enc:%s" % camera.id
             self.workers.append(Worker(
-                "acq:%s" % camera.id,
+                acq_name,
                 Acquisition(self.context, camera, frame_ring, data_queue,
-                            broadcast_ring, broadcast_queue)))
+                            broadcast_ring, broadcast_queue),
+                affinity=pin_for(acq_name, cam_index)))
             self.workers.append(Worker(
-                "enc:%s" % camera.id,
-                Encoder(self.context, camera, frame_ring, data_queue)))
+                enc_name,
+                Encoder(self.context, camera.id, frame_ring, data_queue),
+                affinity=pin_for(enc_name, cam_index)))
 
             if broadcast_enabled:
+                bcast_name = "bcast:%s" % camera.id
                 self.workers.append(Worker(
-                    "bcast:%s" % camera.id,
-                    Broadcast(self.context, camera,
-                              broadcast_ring, broadcast_queue)))
+                    bcast_name,
+                    Broadcast(self.context, camera.id,
+                              broadcast_ring, broadcast_queue),
+                    affinity=pin_for(bcast_name, cam_index)))
 
-        self.workers.append(Worker("transfer", Transfer(self.context)))
-        self.workers.append(Worker("metrics", Metrics(self.context)))
         self.workers.append(Worker(
-            "host_sampler", HostSampler(self.context, self._worker_pids)))
+            "transfer", Transfer(self.context),
+            affinity=pin_for("transfer", -1)))
+        self.workers.append(Worker(
+            "metrics", Metrics(self.context),
+            affinity=pin_for("metrics", -1)))
+        self.workers.append(Worker(
+            "host_sampler", HostSampler(self.context, self._worker_pids),
+            affinity=pin_for("host_sampler", -1)))
 
     def run(self) -> None:
         self._install_signals()
         self.build()
-        soft_drain_pending.set(0)
+        sv_soft_drain_pending.set(0)
 
         logger.info("starting %d workers (%d camera(s))",
                     len(self.workers), len(self.config.cameras))
@@ -136,7 +128,7 @@ class Supervisor:
 
                 dead_pid = worker.process.pid if worker.process else None
                 worker.restart_count += 1
-                worker_restarts.labels(worker=worker.name).inc()
+                sv_worker_restarts.labels(worker=worker.name).inc()
                 backoff_seconds = min(
                     _BACKOFF_CAP_SECONDS, 2 ** min(worker.restart_count, 5))
                 worker.next_restart_ok_at = now_seconds + backoff_seconds
@@ -155,20 +147,17 @@ class Supervisor:
             time.sleep(1.0)
 
         self._shutdown()
-
-    # Two-signal drain: SIGTERM (`systemctl stop`) lets encoders finish
-    # the current chunk first; SIGINT (`systemctl kill -s INT`) bails the
-    # write loop immediately and finalizes whatever partial exists.
+        
     def _install_signals(self) -> None:
         def soft_handler(signum, _frame):
             logger.info("signal %s received soft drain wait for chunk boundary",
                         signum)
-            soft_drain_pending.set(1)
+            sv_soft_drain_pending.set(1)
             self.context.drain.set()
 
         def hard_handler(signum, _frame):
             logger.info("signal %s received hard drain immediate", signum)
-            soft_drain_pending.set(1)
+            sv_soft_drain_pending.set(1)
             self.context.drain.set()
             self.context.hard_drain.set()
 
@@ -176,12 +165,14 @@ class Supervisor:
         signal.signal(signal.SIGINT, hard_handler)
 
     def _shutdown(self) -> None:
+        drain_join_seconds = (
+            self.context.config.encode.chunk_seconds + _DRAIN_JOIN_SLACK_SECONDS)
         if self.context.hard_drain.is_set():
             logger.info("hard drain: encoders exit immediately")
         else:
             logger.info("soft drain: encoders exit at next chunk boundary timeout=%ds",
-                        _DRAIN_JOIN_SECONDS)
-        deadline = time.time() + _DRAIN_JOIN_SECONDS
+                        drain_join_seconds)
+        deadline = time.time() + drain_join_seconds
 
         encoder_workers = [w for w in self.workers if w.name.startswith("enc:")]
         for worker in encoder_workers:

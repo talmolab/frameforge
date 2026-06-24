@@ -4,104 +4,99 @@ import logging
 import queue
 import time
 
-from ..core.config import CameraCfg, Config
-from ..core.context import Context
+from ..config import Config
+from ..context import Context
 from ..media.encoder_backends import FfmpegBackend, MediaBackend
-from ..metrics.helpers import WindowMaxSampler
 from ..metrics.defs import (
     bcast_encode_duration_seconds,
-    bcast_encode_ms_last,
-    bcast_encode_ms_max,
     bcast_session_alive,
 )
 from ..core.shm_ring import FrameRing
 
 _BROADCAST_FPS = 10
-_SAMPLE_EVERY_N_FRAMES = 50
+_OPEN_MAX_ATTEMPTS = 5
+_OPEN_BACKOFF_S = 2.0
+_RTSP_HOST = "127.0.0.1"
+_RTSP_PORT = 8554
 
 
 def make_broadcast_backend(config: Config) -> MediaBackend:
     bcast = config.broadcast
-    match bcast.backend:
-        case "libx264":
-            return FfmpegBackend(
-                codec_args=[
-                    "-c:v", "libx264",
-                    "-preset", bcast.preset,
-                    "-crf", str(bcast.crf),
-                    "-pix_fmt", "yuv420p",
-                    "-tune", "zerolatency",
-                ],
-                output_format="rtsp",
-                extra_output_args=("-rtsp_transport", "tcp"),
-                capture_stderr=False,
-            )
-        case "hevc_qsv":
-            return FfmpegBackend(
-                codec_args=[
-                    "-c:v", "hevc_qsv",
-                    "-preset", "veryfast",
-                    "-b:v", str(int(bcast.bitrate_mbps * 1_000_000)),
-                    "-look_ahead", "0",
-                    "-pix_fmt", "nv12",
-                ],
-                output_format="rtsp",
-                extra_output_args=("-rtsp_transport", "tcp"),
-                capture_stderr=False,
-            )
-        case _:
-            raise ValueError(f"unknown broadcast.backend: {bcast.backend}")
+    return FfmpegBackend(
+        codec_args=[
+            "-c:v", "hevc_qsv",
+            "-preset", "veryfast",
+            "-b:v", str(int(bcast.bitrate_mbps * 1_000_000)),
+            "-look_ahead", "0",
+            "-pix_fmt", "nv12",
+        ],
+        output_format="rtsp",
+        extra_output_args=("-rtsp_transport", "tcp"),
+        capture_stderr=False,
+    )
 
 
 class Broadcast:
-    def __init__(self, context: Context, camera_config: CameraCfg,
+    def __init__(self, context: Context, camera_id: str,
                  broadcast_ring: FrameRing, broadcast_queue) -> None:
         self.context = context
-        self.camera_config = camera_config
+        self.camera_id = camera_id
         self.broadcast_ring = broadcast_ring
         self.broadcast_queue = broadcast_queue
         self.logger = logging.getLogger("frameforge.broadcast")
 
     def run(self) -> None:
-        camera_id = self.camera_config.id
-        broadcast_config = self.context.config.broadcast
-        mount_uri = "rtsp://%s:%d/%s" % (
-            broadcast_config.rtsp_host, broadcast_config.rtsp_port, camera_id)
+        camera_id = self.camera_id
+        mount_uri = "rtsp://%s:%d/%s" % (_RTSP_HOST, _RTSP_PORT, camera_id)
 
-        self.logger.info(
-            "broadcast %s starting backend=%s mount=%s",
-            camera_id, broadcast_config.backend, mount_uri)
+        self.logger.info("broadcast starting mount=%s", mount_uri)
 
-        backend = None
+        backend = self._open_with_retry(mount_uri, camera_id)
+        if backend is None:
+            bcast_session_alive.labels(cam=camera_id).set(0)
+            self.logger.error(
+                "broadcast %s giving up after %d open attempts",
+                camera_id, _OPEN_MAX_ATTEMPTS)
+            return
+
+        bcast_session_alive.labels(cam=camera_id).set(1)
         try:
-            backend = make_broadcast_backend(self.context.config)
-            backend.open(
-                mount_uri,
-                width=self.context.config.width,
-                height=self.context.config.height,
-                fps=_BROADCAST_FPS,
-            )
-            bcast_session_alive.labels(cam=camera_id).set(1)
             self._serve(backend, camera_id)
         except Exception:
             self.logger.exception(
-                "broadcast %s pipeline failed", camera_id)
-            bcast_session_alive.labels(cam=camera_id).set(0)
+                "broadcast %s serve failed", camera_id)
         finally:
-            if backend is not None:
-                try:
-                    backend.close()
-                except Exception:
-                    pass
+            try:
+                backend.close()
+            except Exception:
+                pass
+            bcast_session_alive.labels(cam=camera_id).set(0)
             self.logger.info("broadcast %s stopping", camera_id)
+
+    def _open_with_retry(self, mount_uri: str, camera_id: str):
+        for attempt in range(_OPEN_MAX_ATTEMPTS):
+            if self.context.drain.is_set():
+                return None
+            try:
+                backend = make_broadcast_backend(self.context.config)
+                backend.open(
+                    mount_uri,
+                    width=self.context.config.acq.width,
+                    height=self.context.config.acq.height,
+                    fps=_BROADCAST_FPS,
+                )
+                return backend
+            except Exception:
+                self.logger.exception(
+                    "broadcast %s open failed attempt=%d/%d",
+                    camera_id, attempt + 1, _OPEN_MAX_ATTEMPTS)
+                if attempt + 1 < _OPEN_MAX_ATTEMPTS:
+                    if self.context.drain.wait(_OPEN_BACKOFF_S * (attempt + 1)):
+                        return None
+        return None
 
     def _serve(self, backend, camera_id):
         metric_encode_hist = bcast_encode_duration_seconds.labels(cam=camera_id)
-        encode_ms_sampler = WindowMaxSampler(
-            every=_SAMPLE_EVERY_N_FRAMES,
-            gauge_last=bcast_encode_ms_last.labels(cam=camera_id),
-            gauge_max=bcast_encode_ms_max.labels(cam=camera_id),
-        )
 
         while not self.context.drain.is_set():
             try:
@@ -115,6 +110,5 @@ class Broadcast:
 
                 encode_ns = time.monotonic_ns() - encode_start_ns
                 metric_encode_hist.observe(encode_ns / 1_000_000_000.0)
-                encode_ms_sampler.observe(encode_ns / 1_000_000.0)
             finally:
                 self.broadcast_ring.release(slot_index)
