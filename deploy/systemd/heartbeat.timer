@@ -1,0 +1,11 @@
+[Unit]
+Description=Run frameforge heartbeat hourly
+Requires=heartbeat.service
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=60min
+Unit=heartbeat.service
+
+[Install]
+WantedBy=timers.target

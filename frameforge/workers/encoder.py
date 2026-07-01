@@ -86,13 +86,15 @@ class Encoder:
                     break
 
                 try:
-                    slot_index = self.data_queue.get(timeout=_QUEUE_GET_TIMEOUT_S)
+                    slot_index, camera_ts_ns = self.data_queue.get(
+                        timeout=_QUEUE_GET_TIMEOUT_S)
                 except queue.Empty:
                     continue
 
                 try:
                     encode_start_ns = time.monotonic_ns()
-                    if not backend.write(self.frame_ring.view(slot_index)):
+                    if not backend.write(
+                            self.frame_ring.view(slot_index), ts_ns=camera_ts_ns):
                         raise WriterDied("backend.write returned False")
 
                     encode_ns = time.monotonic_ns() - encode_start_ns
@@ -138,7 +140,7 @@ class Encoder:
         while (not self.context.drain.is_set()
                and self.scheduler.current_chunk_index() == chunk_index):
             try:
-                slot_index = self.data_queue.get(timeout=_QUEUE_GET_TIMEOUT_S)
+                slot_index, _ = self.data_queue.get(timeout=_QUEUE_GET_TIMEOUT_S)
             except queue.Empty:
                 continue
             self.frame_ring.release(slot_index)

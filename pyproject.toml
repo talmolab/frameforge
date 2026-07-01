@@ -1,0 +1,20 @@
+[project]
+name = "frameforge"
+version = "0.1.0"
+description = "Multi-process camera acquisition pipeline for home-cage rodent monitoring"
+requires-python = ">=3.13"
+dependencies = [
+    "pypylon",
+    "smbprotocol",
+    "prometheus-client",
+    "psutil",
+    "pyyaml",
+    "numpy",
+    "av",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "ruff",
+]

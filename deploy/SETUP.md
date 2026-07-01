@@ -1,102 +1,69 @@
 # MS-01 setup
 
-_Last updated: 2026-06-24_
+_Last updated: 2026-06-30_
 
-One-time per rig. Run as root.
+Two scripts handle the install. Both idempotent — safe to re-run.
 
-## 1. User + dirs
+## 0. Have credentials ready before starting
 
-```bash
-sudo useradd -r -s /usr/sbin/nologin talmolab
-sudo install -d -m 755 -o talmolab -g talmolab /usr/local/lib/frameforge
-sudo install -d -m 755 -o talmolab -g talmolab /var/lib/frameforge/scratch
-```
+- **talmolab password** — you'll set it interactively during bootstrap-box.sh (used for SSH + sudo)
+- **VAST_USER / VAST_PASS** — for SMB upload; needed before frameforge starts (install-frameforge.sh creates a stub, you edit)
+- **Hostname** — pick the rig's name (e.g., `talmo-rig01`)
+- **Camera-facing NIC name** — find on the box: `ip link` (e.g., `enp1s0`)
 
-Mount NVMe at `/var/lib/frameforge/scratch` via `/etc/fstab`.
-
-## 2. Kernel / network tuning
+## 1. Bootstrap the box (OS-level)
 
 ```bash
-sudo cp deploy/sysctl-frameforge.conf /etc/sysctl.d/99-frameforge.conf
-sudo sysctl --system
+sudo HOSTNAME=talmo-rig01 CAMERA_IFACE=enp1s0 \
+     ./deploy/scripts/bootstrap-box.sh --with-broadcast
 ```
 
-Camera-facing NIC (replace `<iface>` with `ip link` output):
+Does: hostname, apt installs (multiverse + ffmpeg + intel-driver + mediamtx + prometheus + grafana + avahi + chrony + ssh + python3.13 + uv), talmolab user (prompts for password), system drop-ins (sysctl + journald), camera NIC profile (192.168.10.1/24 + jumbo).
+
+Drop `--with-broadcast` to skip ffmpeg + intel-driver + mediamtx (broadcast off).
+
+## 2. Per-rig configs
+
+Pick the tenant + edit cameras + edit secrets:
 
 ```bash
-sudo nmcli con add type ethernet ifname <iface> ipv4.method manual \
-     ipv4.addresses 192.168.10.1/24 con-name frameforge-cams
+sudo cp config/tenants/charlie.yaml /etc/frameforge/tenant.yaml
+sudo cp config/cameras.example.yaml /etc/frameforge/cameras.yaml
+sudoedit /etc/frameforge/cameras.yaml      # set real serials
 ```
 
-## 3. journald cap
+Order in cameras.yaml = IP slot (first → `192.168.10.101`, second → `.102`, ...).
+
+## 3. Install frameforge
 
 ```bash
-sudo cp deploy/journald-frameforge.conf \
-        /etc/systemd/journald.conf.d/99-frameforge.conf
-sudo systemctl restart systemd-journald
+sudo ./deploy/scripts/install-frameforge.sh
 ```
 
-## 4. Secrets
+Does: git clone/pull, `uv sync` venv, systemd unit installs (frameforge + mediamtx + heartbeat), prometheus.yml, Grafana datasource + dashboard provisioning. Creates `/etc/frameforge/secrets.env` stub if missing.
+
+Edit secrets before starting:
 
 ```bash
-sudo install -d -m 700 /etc/frameforge
-sudoedit /etc/frameforge/secrets.env       # chmod 600
+sudoedit /etc/frameforge/secrets.env       # set real VAST_USER, VAST_PASS
 ```
 
-Contents:
-
-```
-VAST_USER=cdracos
-VAST_PASS=...
-```
-
-## 5. Tenant + cameras
-
-Pick the tenant for this lab (or person/bench):
+## 4. Start
 
 ```bash
-sudo cp /usr/local/lib/frameforge/config/tenants/<name>.yaml \
-        /etc/frameforge/tenant.yaml
+sudo systemctl start frameforge
 ```
 
-Per-rig camera list:
+## Verify
 
 ```bash
-sudo cp /usr/local/lib/frameforge/config/cameras.example.yaml \
-        /etc/frameforge/cameras.yaml
-sudoedit /etc/frameforge/cameras.yaml      # set serials
+journalctl -u frameforge -f                # live tail
+ssh talmolab@talmo-rig01.local             # mDNS access from lab LAN
 ```
 
-Order in the camera list = IP slot (first entry → `192.168.10.101`, second → `.102`, ...).
-
-## 6. RTSP relay (mediamtx)
-
-Frameforge pushes broadcast to `rtsp://127.0.0.1:8554/cam_NN`. Install `mediamtx`
-and run it as a systemd service; defaults accept push on 8554 and re-serve to
-viewers (RTSP for VLC, HLS/WebRTC for browsers).
-
-## 7. Metrics (Prometheus + Grafana)
-
-Install Prometheus on the box; point its config at frameforge's exporter:
-
-```bash
-sudo cp deploy/metrics/prometheus.yml /etc/prometheus/prometheus.yml
-sudo systemctl restart prometheus
-```
-
-Install Grafana, add Prometheus as a datasource, import dashboards from
-`deploy/metrics/grafana/`:
-
-- `per_box.json` — single-rig view
-- `fleet.json` — cross-rig aggregation
-
-## 8. frameforge service
-
-```bash
-sudo cp deploy/frameforge-msone.service /etc/systemd/system/frameforge.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now frameforge
-```
+Browser (lab LAN):
+- `http://talmo-rig01.local:3000` — Grafana (default admin / admin)
+- `http://talmo-rig01.local:8888` — mediamtx web UI, pick a cam to watch live
 
 ## Operations
 
@@ -106,3 +73,22 @@ journalctl -u frameforge --since='-7d'     # last week
 systemctl stop frameforge                  # soft drain (finishes current chunk)
 systemctl kill -s INT frameforge           # hard drain (finalize partial mp4)
 ```
+
+## Re-runs / updates
+
+```bash
+# Update frameforge code only:
+sudo GIT_REF=main ./deploy/scripts/install-frameforge.sh
+sudo systemctl restart frameforge
+
+# Re-run bootstrap (idempotent — adds new apt deps, refreshes drop-ins):
+sudo HOSTNAME=talmo-rig01 CAMERA_IFACE=enp1s0 \
+     ./deploy/scripts/bootstrap-box.sh --with-broadcast
+```
+
+## Lab-IT one-time setup (out of scope of these scripts)
+
+- **Switch**: enable jumbo frames (MTU 9216) on camera-facing ports
+- **Switch IP**: set in your camera subnet (e.g., `192.168.10.2`) via UniFi mobile app or switch web UI
+- **Cameras**: set static IPs in `192.168.10.101..106` via Basler Pylon IP Configurator (one-time per camera, persistent in EEPROM)
+- **Cameras .pfs** (optional): tune in Basler Pylon Viewer + save .pfs file if you want non-default exposure/gain. Frameforge applies sensible programmatic defaults if no .pfs supplied.
