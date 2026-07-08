@@ -75,7 +75,7 @@ class Broadcast:
 
     def _open_with_retry(self, mount_uri: str, camera_id: str):
         for attempt in range(_OPEN_MAX_ATTEMPTS):
-            if self.context.drain.is_set():
+            if self.context.hard_drain.is_set():
                 return None
             try:
                 backend = make_broadcast_backend(self.context.config)
@@ -91,14 +91,14 @@ class Broadcast:
                     "broadcast %s open failed attempt=%d/%d",
                     camera_id, attempt + 1, _OPEN_MAX_ATTEMPTS)
                 if attempt + 1 < _OPEN_MAX_ATTEMPTS:
-                    if self.context.drain.wait(_OPEN_BACKOFF_S * (attempt + 1)):
+                    if self.context.hard_drain.wait(_OPEN_BACKOFF_S * (attempt + 1)):
                         return None
         return None
 
     def _serve(self, backend, camera_id):
         metric_encode_hist = bcast_encode_duration_seconds.labels(cam=camera_id)
 
-        while not self.context.drain.is_set():
+        while not self.context.hard_drain.is_set():
             try:
                 slot_index = self.broadcast_queue.get(timeout=0.5)
             except queue.Empty:

@@ -45,7 +45,7 @@ class Metrics:
             "metrics exporter listening on :%d/metrics (multi-process)",
             _METRICS_PORT)
 
-        while not self.context.drain.is_set():
+        while not self.context.hard_drain.is_set():
             time.sleep(_DRAIN_POLL_INTERVAL_S)
 
         self.logger.info("metrics exporter stopping")

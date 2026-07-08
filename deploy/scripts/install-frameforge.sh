@@ -37,6 +37,9 @@ sudo -u talmolab git checkout "$GIT_REF"
 sudo -u talmolab git pull --ff-only origin "$GIT_REF" || true
 
 # ----- 2. Python venv via uv -----
+# pyproject.toml pins python-preference=only-managed, so uv fetches its own
+# interpreter under ~/.local/share/uv/python/. System Python is never linked
+# — apt/needrestart can never trigger a frameforge restart from below.
 echo "[2/7] Syncing venv via uv..."
 sudo -u talmolab bash -c "cd $FF_HOME && /home/talmolab/.local/bin/uv sync"
 

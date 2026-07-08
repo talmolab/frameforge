@@ -5,6 +5,13 @@ import os
 from zoneinfo import ZoneInfo
 
 
+_SIDECAR_SUFFIX = ".ts.npy"
+
+
+def sidecar_for(mp4_path: str) -> str:
+    return mp4_path[:-len(".mp4")] + _SIDECAR_SUFFIX
+
+
 _TZ = ZoneInfo("America/Los_Angeles")
 
 
@@ -29,6 +36,9 @@ class ChunkScheduler:
             self._today_midnight_str(),
             "%s.%02d.mp4" % (self.camera_id, chunk_index),
         )
+
+    def sidecar_path(self, chunk_index: int) -> str:
+        return sidecar_for(self.chunk_path(chunk_index))
 
     def target_frames(self, fps: float) -> int:
         return int(round(self.chunk_seconds * fps))

@@ -1,17 +1,8 @@
-"""Media backends: shared ABC + PyAV (recording) + ffmpeg subprocess (broadcast).
-
-Recording uses PyAV to embed per-frame camera timestamps in MP4 PTS (no sidecar
-needed; downstream reads timestamps via cv2.CAP_PROP_POS_MSEC).
-Broadcast uses ffmpeg subprocess because hevc_qsv hardware acceleration is
-significantly more ergonomic via the CLI than PyAV's libav bindings.
-"""
+"""Media backends: shared ABC + ffmpeg subprocess for both recording and broadcast."""
 
 import abc
 import os
 import subprocess
-from fractions import Fraction
-
-import av
 
 from ..config import Config
 
@@ -118,59 +109,6 @@ class FfmpegBackend(MediaBackend):
             self._stdin = None
             self._stderr_fh = None
             self._stderr_path = None
-
-
-class PyAVBackend(MediaBackend):
-    _PTS_TIME_BASE = (1, 1_000_000_000)
-
-    def __init__(self, *, codec: str, pix_fmt: str, options: dict) -> None:
-        self._codec = codec
-        self._pix_fmt = pix_fmt
-        self._options = dict(options)
-
-        self._container = None
-        self._stream = None
-        self._chunk_start_ts_ns = None
-
-    def open(self, target, *, width, height, fps) -> None:
-        self._container = av.open(target, mode="w", format="mp4")
-        self._stream = self._container.add_stream(self._codec, rate=int(round(fps)))
-        self._stream.width = width
-        self._stream.height = height
-        self._stream.pix_fmt = self._pix_fmt
-        self._stream.time_base = Fraction(*self._PTS_TIME_BASE)
-        self._stream.options = self._options
-
-    def write(self, frame, ts_ns: int | None = None) -> bool:
-        if self._stream is None:
-            return False
-        try:
-            av_frame = av.VideoFrame.from_ndarray(frame, format="gray")
-            if ts_ns is not None:
-                if self._chunk_start_ts_ns is None:
-                    self._chunk_start_ts_ns = ts_ns
-                av_frame.pts = ts_ns - self._chunk_start_ts_ns
-            for packet in self._stream.encode(av_frame):
-                self._container.mux(packet)
-            return True
-        except av.AVError:
-            return False
-
-    def close(self) -> None:
-        if self._stream is not None:
-            try:
-                for packet in self._stream.encode():
-                    self._container.mux(packet)
-            except av.AVError:
-                pass
-        if self._container is not None:
-            try:
-                self._container.close()
-            except av.AVError:
-                pass
-        self._stream = None
-        self._container = None
-        self._chunk_start_ts_ns = None
 
 
 def make_encoder_backend(config: Config) -> MediaBackend:

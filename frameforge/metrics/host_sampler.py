@@ -33,7 +33,7 @@ class HostSampler:
     def run(self) -> None:
         self.logger.info(
             "host sampler starting (interval=%.1fs)", _SAMPLE_INTERVAL_S)
-        while not self.context.drain.is_set():
+        while not self.context.hard_drain.is_set():
             self._sample_all()
             self._sample_host()
             self._sleep_with_drain(_SAMPLE_INTERVAL_S)
@@ -76,7 +76,7 @@ class HostSampler:
 
     def _sleep_with_drain(self, seconds):
         deadline = time.monotonic() + seconds
-        while not self.context.drain.is_set():
+        while not self.context.hard_drain.is_set():
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return

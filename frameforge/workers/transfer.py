@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from ..context import Context
 from ..core.logging_setup import DEDUP_INTERVAL_S, DEDUP_KEY
 from ..core.paths import SCRATCH_DIR
+from ..media.chunk_scheduler import sidecar_for
 from ..media.smb_session import SmbSession
 from ..metrics.defs import (
     transfer_discarded,
@@ -65,7 +66,7 @@ class Transfer:
             "transfer starting (target=%s analytics=%s)",
             prefix, self.transfer_config.analytics)
 
-        while not self.context.drain.is_set():
+        while not self.context.hard_drain.is_set():
             if self.session.ensure_open():
                 self._scan_and_upload()
             self._check_disk()
@@ -77,7 +78,7 @@ class Transfer:
 
     def _scan_and_upload(self) -> None:
         for local_path in self._find_finalized_chunks():
-            if self.context.drain.is_set():
+            if self.context.hard_drain.is_set():
                 return
 
             if self.transfer_config.analytics:
@@ -86,6 +87,19 @@ class Transfer:
                 info_str = " ".join(
                     "%s=%s" % (key, value) for key, value in info.items())
                 self.logger.info("chunk path=%s %s", relative, info_str)
+
+            sidecar_path = sidecar_for(local_path)
+            has_sidecar = os.path.exists(sidecar_path)
+
+            if has_sidecar:
+                try:
+                    self.session.upload(sidecar_path)
+                except Exception as sidecar_error:
+                    self.logger.warning(
+                        "sidecar upload failed path=%s err=%s (mp4 continues)",
+                        sidecar_path, sidecar_error,
+                        extra={DEDUP_KEY: ("sidecar_fail", sidecar_path)})
+                    has_sidecar = False
 
             attempts = self._uploads.attempt(local_path)
             try:
@@ -115,9 +129,16 @@ class Transfer:
                 os.remove(local_path)
             except OSError:
                 self.logger.exception("could not delete uploaded %s", local_path)
+            if has_sidecar:
+                try:
+                    os.remove(sidecar_path)
+                except OSError:
+                    self.logger.exception(
+                        "could not delete uploaded sidecar %s", sidecar_path)
             self._uploads.clear(local_path)
             transfer_uploaded.inc()
-            self.logger.debug("uploaded path=%s", local_path)
+            self.logger.debug("uploaded path=%s sidecar=%s",
+                              local_path, has_sidecar)
 
     def _find_finalized_chunks(self):
         finalized = []
@@ -183,7 +204,7 @@ class Transfer:
 
     def _sleep_with_drain(self, seconds):
         deadline = time.monotonic() + seconds
-        while not self.context.drain.is_set():
+        while not self.context.hard_drain.is_set():
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return

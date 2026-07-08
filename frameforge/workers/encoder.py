@@ -5,7 +5,9 @@ import os
 import queue
 import time
 
-from ..media.chunk_scheduler import ChunkScheduler
+import numpy as np
+
+from ..media.chunk_scheduler import ChunkScheduler, sidecar_for
 from ..context import Context
 from ..core.paths import SCRATCH_DIR
 from ..media.encoder_backends import WriterDied, make_encoder_backend
@@ -80,6 +82,7 @@ class Encoder:
             camera_id, chunk_index, target_frames, partial_chunk_path)
 
         frames_written = 0
+        chunk_timestamps: list[int] = []
         try:
             while frames_written < target_frames and not self.context.hard_drain.is_set():
                 if self.scheduler.current_chunk_index() != opened_index:
@@ -100,6 +103,7 @@ class Encoder:
                     encode_ns = time.monotonic_ns() - encode_start_ns
                     metric_encode_hist.observe(encode_ns / 1_000_000_000.0)
 
+                    chunk_timestamps.append(camera_ts_ns)
                     frames_written += 1
                 finally:
                     self.frame_ring.release(slot_index)
@@ -117,6 +121,8 @@ class Encoder:
                     "backend.close failed cam=%s index=%d",
                     camera_id, chunk_index)
 
+            self._write_sidecar(chunk_path, chunk_timestamps)
+
             if os.path.exists(partial_chunk_path):
                 try:
                     os.rename(partial_chunk_path, chunk_path)
@@ -127,6 +133,25 @@ class Encoder:
                     self.logger.exception(
                         "rename failed src=%s dst=%s",
                         partial_chunk_path, chunk_path)
+
+    def _write_sidecar(self, chunk_path: str, timestamps: list[int]) -> None:
+        if not timestamps:
+            return
+        sidecar_path = sidecar_for(chunk_path)
+        partial = sidecar_path + ".part"
+        try:
+            with open(partial, "wb") as sidecar_file:
+                np.save(sidecar_file, np.array(timestamps, dtype=np.int64),
+                        allow_pickle=False)
+            os.rename(partial, sidecar_path)
+        except OSError:
+            self.logger.exception(
+                "sidecar write failed cam=%s path=%s",
+                self.camera_id, sidecar_path)
+            try:
+                os.remove(partial)
+            except OSError:
+                pass
 
     def _idle_until_next_chunk(self, chunk_index):
         camera_id = self.camera_id

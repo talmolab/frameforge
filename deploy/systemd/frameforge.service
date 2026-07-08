@@ -26,7 +26,7 @@ Restart=no
 #   SIGINT  (systemctl kill -s INT) -> hard, finalize partial mp4 immediately
 KillMode=mixed
 KillSignal=SIGTERM
-TimeoutStopSec=3700
+TimeoutStopSec=3800
 
 [Install]
 WantedBy=multi-user.target

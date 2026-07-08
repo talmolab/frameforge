@@ -7,10 +7,8 @@ dependencies = [
     "pypylon",
     "smbprotocol",
     "prometheus-client",
-    "psutil",
     "pyyaml",
     "numpy",
-    "av",
 ]
 
 [project.optional-dependencies]
@@ -18,3 +16,6 @@ dev = [
     "pytest",
     "ruff",
 ]
+
+[tool.uv]
+python-preference = "only-managed"

@@ -50,16 +50,17 @@ apt-get install -y --no-install-recommends \
     chrony \
     openssh-server \
     smbclient \
-    python3.13 \
     curl \
-    network-manager \
     sudo
 
 if [ "$WITH_BROADCAST" = "true" ]; then
-    echo "[3b/9] Installing broadcast packages (ffmpeg, intel-driver, mediamtx)..."
+    echo "[3b/9] Installing broadcast packages (ffmpeg, intel-driver, oneVPL, mediamtx)..."
     apt-get install -y --no-install-recommends \
         ffmpeg \
-        intel-media-va-driver-non-free
+        intel-media-va-driver-non-free \
+        libvpl2 \
+        vainfo \
+        intel-gpu-tools
     # mediamtx ships as a binary, not via apt — install from GitHub release
     if ! command -v mediamtx >/dev/null; then
         MEDIAMTX_VERSION="1.9.3"  # pin a known-good version
@@ -83,6 +84,20 @@ if [ ! -f /etc/apt/sources.list.d/grafana.list ]; then
 fi
 apt-get install -y --no-install-recommends grafana
 
+# Pin observability + broadcast deps so unattended-upgrades doesn't restart them and
+# blank dashboards / broadcast mid-recording; upgrades become operator-driven.
+apt-mark hold prometheus grafana
+if [ "$WITH_BROADCAST" = "true" ]; then
+    apt-mark hold ffmpeg intel-media-va-driver-non-free libvpl2
+fi
+
+# Belt-and-braces: even if a future apt run touches something frameforge links to,
+# needrestart won't auto-restart the service.
+install -d /etc/needrestart/conf.d
+cat > /etc/needrestart/conf.d/frameforge.conf <<'EOF'
+$nrconf{override_rc}{qr(^frameforge\.service$)} = 0;
+EOF
+
 # ----- 5. talmolab user + groups -----
 echo "[5/9] Creating talmolab user..."
 if ! id -u talmolab >/dev/null 2>&1; then
@@ -96,7 +111,7 @@ usermod -aG sudo,video,render talmolab
 echo "[6/9] Creating system dirs..."
 install -d -m 755 -o talmolab -g talmolab /usr/local/lib/frameforge
 install -d -m 755 -o talmolab -g talmolab /var/lib/frameforge/scratch
-install -d -m 700 -o root -g root /etc/frameforge
+install -d -m 755 -o root -g root /etc/frameforge
 
 # ----- 7. System drop-ins (kernel + journald) -----
 echo "[7/9] Installing system drop-ins..."
@@ -107,17 +122,23 @@ install -d /etc/systemd/journald.conf.d
 cp "$DEPLOY_DIR/system/journald-frameforge.conf" /etc/systemd/journald.conf.d/99-frameforge.conf
 systemctl restart systemd-journald
 
-# ----- 8. Camera-facing NIC -----
-echo "[8/9] Configuring camera NIC ($CAMERA_IFACE)..."
-if ! nmcli -t -f NAME con show | grep -qx frameforge-cams; then
-    nmcli con add type ethernet ifname "$CAMERA_IFACE" \
-        con-name frameforge-cams \
-        ipv4.method manual \
-        ipv4.addresses 192.168.10.1/24 \
-        ipv6.method ignore \
-        802-3-ethernet.mtu 9000
-fi
-nmcli con up frameforge-cams || true
+# ----- 8. Camera-facing NIC (netplan/networkd — Ubuntu Server default) -----
+echo "[8/9] Configuring camera NIC ($CAMERA_IFACE) via netplan..."
+install -m 600 /dev/null /etc/netplan/99-frameforge-cams.yaml
+cat > /etc/netplan/99-frameforge-cams.yaml <<EOF
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    $CAMERA_IFACE:
+      addresses: [192.168.10.1/24]
+      mtu: 9000
+      dhcp4: false
+      dhcp6: false
+      link-local: []
+      accept-ra: false
+EOF
+netplan apply
 
 # ----- 9. uv (Python package manager) -----
 echo "[9/9] Installing uv..."

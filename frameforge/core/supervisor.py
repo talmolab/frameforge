@@ -34,6 +34,7 @@ logger = logging.getLogger("frameforge.supervisor")
 _BACKOFF_CAP_SECONDS = 30
 _DRAIN_JOIN_SLACK_SECONDS = 100
 _BROADCAST_RING_SLOTS = 24
+_FINAL_JOIN_SECONDS = 30
 
 
 class Supervisor:
@@ -165,13 +166,16 @@ class Supervisor:
         signal.signal(signal.SIGINT, hard_handler)
 
     def _shutdown(self) -> None:
+        # Soft: wait for encoders to finalize at chunk boundary, then cascade
+        #       hard_drain to everyone else.
+        # Hard: hard_drain is already set; encoders bail mid-chunk (.part left
+        #       on disk, discarded next boot). Everyone else is already exiting.
         drain_join_seconds = (
             self.context.config.encode.chunk_seconds + _DRAIN_JOIN_SLACK_SECONDS)
         if self.context.hard_drain.is_set():
-            logger.info("hard drain: encoders exit immediately")
+            logger.info("hard drain: all workers exiting")
         else:
-            logger.info("soft drain: encoders exit at next chunk boundary timeout=%ds",
-                        drain_join_seconds)
+            logger.info("soft drain: encoders finalize (up to %ds)", drain_join_seconds)
         deadline = time.time() + drain_join_seconds
 
         encoder_workers = [w for w in self.workers if w.name.startswith("enc:")]
@@ -179,14 +183,11 @@ class Supervisor:
             if worker.process is not None:
                 worker.process.join(timeout=max(1.0, deadline - time.time()))
 
-        for worker in self.workers:
-            if worker.alive():
-                logger.info("terminating %s", worker.name)
-                worker.process.terminate()
+        self.context.hard_drain.set()
 
         for worker in self.workers:
             if worker.process is not None and worker.alive():
-                worker.process.join(timeout=5.0)
+                worker.process.join(timeout=_FINAL_JOIN_SECONDS)
 
         failures = [
             WorkerFailure(w.name, w.process.exitcode)
