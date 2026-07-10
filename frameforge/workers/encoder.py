@@ -5,6 +5,7 @@ import os
 import queue
 import time
 
+import h5py
 import numpy as np
 
 from ..media.chunk_scheduler import ChunkScheduler, sidecar_for
@@ -89,7 +90,7 @@ class Encoder:
                     break
 
                 try:
-                    slot_index, camera_ts_ns = self.data_queue.get(
+                    slot_index, ts_ns = self.data_queue.get(
                         timeout=_QUEUE_GET_TIMEOUT_S)
                 except queue.Empty:
                     continue
@@ -97,13 +98,13 @@ class Encoder:
                 try:
                     encode_start_ns = time.monotonic_ns()
                     if not backend.write(
-                            self.frame_ring.view(slot_index), ts_ns=camera_ts_ns):
+                            self.frame_ring.view(slot_index), ts_ns=ts_ns):
                         raise WriterDied("backend.write returned False")
 
                     encode_ns = time.monotonic_ns() - encode_start_ns
                     metric_encode_hist.observe(encode_ns / 1_000_000_000.0)
 
-                    chunk_timestamps.append(camera_ts_ns)
+                    chunk_timestamps.append(ts_ns)
                     frames_written += 1
                 finally:
                     self.frame_ring.release(slot_index)
@@ -121,18 +122,22 @@ class Encoder:
                     "backend.close failed cam=%s index=%d",
                     camera_id, chunk_index)
 
-            self._write_sidecar(chunk_path, chunk_timestamps)
-
-            if os.path.exists(partial_chunk_path):
-                try:
-                    os.rename(partial_chunk_path, chunk_path)
-                    self.logger.info(
-                        "finalized path=%s frames=%d/%d",
-                        chunk_path, frames_written, target_frames)
-                except OSError:
-                    self.logger.exception(
-                        "rename failed src=%s dst=%s",
-                        partial_chunk_path, chunk_path)
+            if self.context.hard_drain.is_set():
+                self.logger.info(
+                    "chunk aborted cam=%s index=%d frames=%d/%d (hard drain)",
+                    camera_id, chunk_index, frames_written, target_frames)
+            else:
+                self._write_sidecar(chunk_path, chunk_timestamps)
+                if os.path.exists(partial_chunk_path):
+                    try:
+                        os.rename(partial_chunk_path, chunk_path)
+                        self.logger.info(
+                            "finalized path=%s frames=%d/%d",
+                            chunk_path, frames_written, target_frames)
+                    except OSError:
+                        self.logger.exception(
+                            "rename failed src=%s dst=%s",
+                            partial_chunk_path, chunk_path)
 
     def _write_sidecar(self, chunk_path: str, timestamps: list[int]) -> None:
         if not timestamps:
@@ -140,9 +145,12 @@ class Encoder:
         sidecar_path = sidecar_for(chunk_path)
         partial = sidecar_path + ".part"
         try:
-            with open(partial, "wb") as sidecar_file:
-                np.save(sidecar_file, np.array(timestamps, dtype=np.int64),
-                        allow_pickle=False)
+            with h5py.File(partial, "w") as h5:
+                h5.create_dataset(
+                    "timestamps",
+                    data=np.array(timestamps, dtype=np.int64))
+                h5.attrs["fps"] = float(self.context.config.encode.fps)
+                h5.attrs["host"] = os.uname().nodename
             os.rename(partial, sidecar_path)
         except OSError:
             self.logger.exception(

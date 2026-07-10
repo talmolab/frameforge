@@ -39,21 +39,27 @@ class Camera:
         else:
             pylon_camera = pylon.InstantCamera(tl_factory.CreateFirstDevice())
 
-        pylon_camera.Open()
-        self.pylon_camera = pylon_camera
+        try:
+            pylon_camera.Open()
+            self.pylon_camera = pylon_camera
+
+            if self.camera_config.pfs and os.path.isfile(self.camera_config.pfs):
+                pylon.FeaturePersistence.Load(
+                    self.camera_config.pfs, pylon_camera.GetNodeMap(), True)
+                self.logger.info("cam=%s applied .pfs %s",
+                                 self.camera_config.id, self.camera_config.pfs)
+            else:
+                self._apply_defaults(pylon_camera)
+
+            self._apply_gige_tuning(pylon_camera)
+            self.retrieve_timeout_ms = (
+                _heartbeat_ms(pylon_camera) or _DEFAULT_RETRIEVE_TIMEOUT_MS)
+        except Exception:
+            acq_camera_alive.labels(cam=self.camera_config.id).set(0)
+            self.close()
+            raise
+
         acq_camera_alive.labels(cam=self.camera_config.id).set(1)
-
-        if self.camera_config.pfs and os.path.isfile(self.camera_config.pfs):
-            pylon.FeaturePersistence.Load(
-                self.camera_config.pfs, pylon_camera.GetNodeMap(), True)
-            self.logger.info("cam=%s applied .pfs %s",
-                             self.camera_config.id, self.camera_config.pfs)
-        else:
-            self._apply_defaults(pylon_camera)
-
-        self._apply_gige_tuning(pylon_camera)
-        self.retrieve_timeout_ms = (
-            _heartbeat_ms(pylon_camera) or _DEFAULT_RETRIEVE_TIMEOUT_MS)
 
         self.logger.info(
             "cam=%s open serial=%s retrieve_ms=%d",

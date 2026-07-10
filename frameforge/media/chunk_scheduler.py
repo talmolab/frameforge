@@ -5,7 +5,7 @@ import os
 from zoneinfo import ZoneInfo
 
 
-_SIDECAR_SUFFIX = ".ts.npy"
+_SIDECAR_SUFFIX = ".h5"
 
 
 def sidecar_for(mp4_path: str) -> str:

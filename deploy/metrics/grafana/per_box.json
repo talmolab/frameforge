@@ -2,12 +2,12 @@
   "title": "frameforge — per box",
   "uid": "frameforge-per-box",
   "schemaVersion": 39,
-  "version": 1,
-  "refresh": "15s",
-  "time": {"from": "now-30m", "to": "now"},
+  "version": 6,
+  "refresh": "30s",
+  "time": {"from": "now-24h", "to": "now"},
   "timepicker": {
-    "refresh_intervals": ["5s", "15s", "30s", "1m", "5m", "15m", "30m", "1h"],
-    "time_options": ["30m", "1h", "6h", "12h", "24h", "3d", "7d", "14d"]
+    "refresh_intervals": ["15s", "30s", "1m", "5m", "15m", "30m", "1h"],
+    "time_options": ["1h", "6h", "12h", "24h", "3d", "7d", "14d", "30d"]
   },
   "templating": {
     "list": [
@@ -23,182 +23,259 @@
     ]
   },
   "panels": [
+
+    {"id": 100, "type": "row", "title": "Status",
+     "gridPos": {"x": 0, "y": 0, "w": 24, "h": 1}, "collapsed": false},
+
     {
-      "id": 1,
-      "title": "Camera alive (per cam)",
-      "type": "stat",
-      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 3},
-      "targets": [{"expr": "acq_camera_alive{cam=~\"$cam\"}", "legendFormat": "{{cam}}", "refId": "A"}],
-      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}}
+      "id": 1, "title": "Overall status", "type": "stat",
+      "gridPos": {"x": 0, "y": 1, "w": 6, "h": 4},
+      "targets": [{"expr": "min(acq_camera_alive) * on() transfer_session_alive", "refId": "A", "interval": "15s"}],
+      "fieldConfig": {"defaults": {"unit": "short", "noValue": "0",
+        "mappings": [{"type": "value", "options": {
+          "0": {"text": "DEGRADED", "color": "red", "index": 0},
+          "1": {"text": "OK", "color": "green", "index": 1}
+        }}],
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "red", "value": null}, {"color": "green", "value": 1}
+        ]}}},
+      "options": {"colorMode": "background", "graphMode": "none", "textMode": "value",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}}
     },
     {
-      "id": 2,
-      "title": "Broadcast alive (per cam)",
-      "type": "stat",
-      "gridPos": {"x": 6, "y": 0, "w": 6, "h": 3},
-      "targets": [{"expr": "bcast_session_alive{cam=~\"$cam\"}", "legendFormat": "{{cam}}", "refId": "A"}],
-      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}}
+      "id": 2, "title": "Uptime", "type": "stat",
+      "gridPos": {"x": 6, "y": 1, "w": 6, "h": 4},
+      "targets": [{"expr": "frameforge_uptime_seconds", "refId": "A", "interval": "15s"}],
+      "fieldConfig": {"defaults": {"unit": "s",
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "green", "value": null}
+        ]}}},
+      "options": {"colorMode": "value", "graphMode": "none",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}}
     },
     {
-      "id": 3,
-      "title": "SMB session alive",
-      "type": "stat",
-      "gridPos": {"x": 12, "y": 0, "w": 6, "h": 3},
-      "targets": [{"expr": "transfer_session_alive", "refId": "A"}],
-      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}}
+      "id": 3, "title": "Cameras open", "type": "stat",
+      "gridPos": {"x": 12, "y": 1, "w": 6, "h": 4},
+      "targets": [{"expr": "sum(acq_camera_alive)", "refId": "A", "interval": "15s"}],
+      "fieldConfig": {"defaults": {"unit": "short", "noValue": "0",
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "red", "value": null}, {"color": "yellow", "value": 1}, {"color": "green", "value": 3}
+        ]}}},
+      "options": {"colorMode": "value", "graphMode": "none",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}}
     },
     {
-      "id": 4,
-      "title": "Scratch free",
-      "type": "stat",
-      "gridPos": {"x": 18, "y": 0, "w": 6, "h": 3},
-      "targets": [{"expr": "transfer_free_mb", "refId": "A"}],
-      "fieldConfig": {"defaults": {"unit": "decmbytes", "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "yellow", "value": 1000}, {"color": "green", "value": 5000}]}}}
+      "id": 4, "title": "Frames lost (all cams, time window)", "type": "stat",
+      "gridPos": {"x": 18, "y": 1, "w": 6, "h": 4},
+      "targets": [{"expr": "(sum(increase(acq_overrun_drops_total[$__range])) or vector(0)) + (sum(increase(acq_missed_frames_total[$__range])) or vector(0)) + (sum(increase(acq_incomplete_total[$__range])) or vector(0))", "refId": "A", "interval": "15s"}],
+      "fieldConfig": {"defaults": {"unit": "short", "noValue": "0", "decimals": 0,
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "green", "value": null}, {"color": "yellow", "value": 1}, {"color": "red", "value": 100}
+        ]}}},
+      "options": {"colorMode": "value", "graphMode": "none",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}},
+      "description": "Sum across acq_overrun_drops + acq_missed_frames + acq_incomplete over the current dashboard time range ($__range). Uses `or vector(0)` so missing counters don't collapse the sum."
     },
+
+    {"id": 101, "type": "row", "title": "Latency",
+     "gridPos": {"x": 0, "y": 5, "w": 24, "h": 1}, "collapsed": false},
+
     {
-      "id": 5,
-      "title": "Frames processed (per cam, cumulative)",
-      "type": "stat",
-      "gridPos": {"x": 0, "y": 3, "w": 6, "h": 3},
-      "targets": [{"expr": "acq_loop_duration_seconds_count{cam=~\"$cam\"}", "legendFormat": "{{cam}}", "refId": "A"}],
-      "fieldConfig": {"defaults": {"unit": "short"}},
-      "description": "Acq loop iterations that completed successfully (frame grabbed + queued to encoder). Excludes incomplete + missed + overrun drops."
-    },
-    {
-      "id": 6,
-      "title": "Drops (per cam, cumulative; overrun + missed + incomplete)",
-      "type": "stat",
-      "gridPos": {"x": 6, "y": 3, "w": 6, "h": 3},
-      "targets": [
-        {"expr": "(acq_overrun_drops_total{cam=~\"$cam\"} or vector(0)) + (acq_missed_frames_total{cam=~\"$cam\"} or vector(0)) + (acq_incomplete_total{cam=~\"$cam\"} or vector(0))", "legendFormat": "{{cam}}", "refId": "A"}
-      ],
-      "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1}, {"color": "red", "value": 100}]}}}
-    },
-    {
-      "id": 7,
-      "title": "Chunks uploaded (cumulative)",
-      "type": "stat",
-      "gridPos": {"x": 12, "y": 3, "w": 6, "h": 3},
-      "targets": [{"expr": "transfer_uploaded_total", "refId": "A"}],
-      "fieldConfig": {"defaults": {"unit": "short"}}
-    },
-    {
-      "id": 8,
-      "title": "Chunks discarded (cumulative)",
-      "type": "stat",
-      "gridPos": {"x": 18, "y": 3, "w": 6, "h": 3},
-      "targets": [{"expr": "transfer_discarded_total", "refId": "A"}],
-      "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}}
-    },
-    {
-      "id": 9,
-      "title": "Acquisition loop latency — p50 / p95 / p99 (aggregated across cams)",
+      "id": 10, "title": "Acquisition loop — p50 / p95 / p99",
       "type": "timeseries",
       "gridPos": {"x": 0, "y": 6, "w": 8, "h": 8},
       "targets": [
-        {"expr": "histogram_quantile(0.50, sum by (le) (rate(acq_loop_duration_seconds_bucket{cam=~\"$cam\"}[$__rate_interval])))", "legendFormat": "p50", "refId": "A"},
-        {"expr": "histogram_quantile(0.95, sum by (le) (rate(acq_loop_duration_seconds_bucket{cam=~\"$cam\"}[$__rate_interval])))", "legendFormat": "p95", "refId": "B"},
-        {"expr": "histogram_quantile(0.99, sum by (le) (rate(acq_loop_duration_seconds_bucket{cam=~\"$cam\"}[$__rate_interval])))", "legendFormat": "p99", "refId": "C"}
+        {"expr": "histogram_quantile(0.50, sum by (cam, le) (rate(acq_loop_duration_seconds_bucket{cam=~\"$cam\"}[$__rate_interval])))", "legendFormat": "p50 {{cam}}", "refId": "A"},
+        {"expr": "histogram_quantile(0.95, sum by (cam, le) (rate(acq_loop_duration_seconds_bucket{cam=~\"$cam\"}[$__rate_interval])))", "legendFormat": "p95 {{cam}}", "refId": "B"},
+        {"expr": "histogram_quantile(0.99, sum by (cam, le) (rate(acq_loop_duration_seconds_bucket{cam=~\"$cam\"}[$__rate_interval])))", "legendFormat": "p99 {{cam}}", "refId": "C"}
       ],
-      "fieldConfig": {"defaults": {"unit": "s"}}
+      "fieldConfig": {"defaults": {"unit": "s",
+        "custom": {"lineWidth": 2, "fillOpacity": 0},
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "green", "value": null}, {"color": "yellow", "value": 0.020}, {"color": "red", "value": 0.030}
+        ]}}},
+      "options": {"legend": {"placement": "bottom", "displayMode": "table", "calcs": ["lastNotNull", "max"]},
+        "tooltip": {"mode": "multi", "sort": "desc"}}
     },
     {
-      "id": 10,
-      "title": "Encoder per-frame latency — p50 / p95 / p99 (aggregated)",
+      "id": 11, "title": "Encoder per-frame — p50 / p95 / p99",
       "type": "timeseries",
       "gridPos": {"x": 8, "y": 6, "w": 8, "h": 8},
       "targets": [
-        {"expr": "histogram_quantile(0.50, sum by (le) (rate(enc_encode_duration_seconds_bucket{cam=~\"$cam\"}[$__rate_interval])))", "legendFormat": "p50", "refId": "A"},
-        {"expr": "histogram_quantile(0.95, sum by (le) (rate(enc_encode_duration_seconds_bucket{cam=~\"$cam\"}[$__rate_interval])))", "legendFormat": "p95", "refId": "B"},
-        {"expr": "histogram_quantile(0.99, sum by (le) (rate(enc_encode_duration_seconds_bucket{cam=~\"$cam\"}[$__rate_interval])))", "legendFormat": "p99", "refId": "C"}
+        {"expr": "histogram_quantile(0.50, sum by (cam, le) (rate(enc_encode_duration_seconds_bucket{cam=~\"$cam\"}[$__rate_interval])))", "legendFormat": "p50 {{cam}}", "refId": "A"},
+        {"expr": "histogram_quantile(0.95, sum by (cam, le) (rate(enc_encode_duration_seconds_bucket{cam=~\"$cam\"}[$__rate_interval])))", "legendFormat": "p95 {{cam}}", "refId": "B"},
+        {"expr": "histogram_quantile(0.99, sum by (cam, le) (rate(enc_encode_duration_seconds_bucket{cam=~\"$cam\"}[$__rate_interval])))", "legendFormat": "p99 {{cam}}", "refId": "C"}
       ],
-      "fieldConfig": {"defaults": {"unit": "s"}}
+      "fieldConfig": {"defaults": {"unit": "s",
+        "custom": {"lineWidth": 2, "fillOpacity": 0},
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "green", "value": null}, {"color": "yellow", "value": 0.015}, {"color": "red", "value": 0.020}
+        ]}}},
+      "options": {"legend": {"placement": "bottom", "displayMode": "table", "calcs": ["lastNotNull", "max"]},
+        "tooltip": {"mode": "multi", "sort": "desc"}}
     },
     {
-      "id": 11,
-      "title": "Broadcast per-frame latency — p50 / p95 / p99 (aggregated)",
+      "id": 12, "title": "Broadcast per-frame — p50 / p95 / p99",
       "type": "timeseries",
       "gridPos": {"x": 16, "y": 6, "w": 8, "h": 8},
       "targets": [
-        {"expr": "histogram_quantile(0.50, sum by (le) (rate(bcast_encode_duration_seconds_bucket{cam=~\"$cam\"}[$__rate_interval])))", "legendFormat": "p50", "refId": "A"},
-        {"expr": "histogram_quantile(0.95, sum by (le) (rate(bcast_encode_duration_seconds_bucket{cam=~\"$cam\"}[$__rate_interval])))", "legendFormat": "p95", "refId": "B"},
-        {"expr": "histogram_quantile(0.99, sum by (le) (rate(bcast_encode_duration_seconds_bucket{cam=~\"$cam\"}[$__rate_interval])))", "legendFormat": "p99", "refId": "C"}
+        {"expr": "histogram_quantile(0.50, sum by (cam, le) (rate(bcast_encode_duration_seconds_bucket{cam=~\"$cam\"}[$__rate_interval])))", "legendFormat": "p50 {{cam}}", "refId": "A"},
+        {"expr": "histogram_quantile(0.95, sum by (cam, le) (rate(bcast_encode_duration_seconds_bucket{cam=~\"$cam\"}[$__rate_interval])))", "legendFormat": "p95 {{cam}}", "refId": "B"},
+        {"expr": "histogram_quantile(0.99, sum by (cam, le) (rate(bcast_encode_duration_seconds_bucket{cam=~\"$cam\"}[$__rate_interval])))", "legendFormat": "p99 {{cam}}", "refId": "C"}
       ],
-      "fieldConfig": {"defaults": {"unit": "s"}}
+      "fieldConfig": {"defaults": {"unit": "s",
+        "custom": {"lineWidth": 2, "fillOpacity": 0}}},
+      "options": {"legend": {"placement": "bottom", "displayMode": "table", "calcs": ["lastNotNull", "max"]},
+        "tooltip": {"mode": "multi", "sort": "desc"}}
     },
+
+    {"id": 104, "type": "row", "title": "Backpressure",
+     "gridPos": {"x": 0, "y": 14, "w": 24, "h": 1}, "collapsed": false},
+
     {
-      "id": 12,
-      "title": "Drops per minute (per cam, by type)",
+      "id": 41, "title": "Ring free + queue depth (per cam)",
       "type": "timeseries",
-      "gridPos": {"x": 0, "y": 14, "w": 12, "h": 8},
-      "targets": [
-        {"expr": "rate(acq_overrun_drops_total{cam=~\"$cam\"}[$__rate_interval]) * 60", "legendFormat": "overrun {{cam}}", "refId": "A"},
-        {"expr": "rate(acq_missed_frames_total{cam=~\"$cam\"}[$__rate_interval]) * 60", "legendFormat": "missed {{cam}}", "refId": "B"},
-        {"expr": "rate(acq_incomplete_total{cam=~\"$cam\"}[$__rate_interval]) * 60", "legendFormat": "incomplete {{cam}}", "refId": "C"}
-      ],
-      "fieldConfig": {"defaults": {"unit": "short"}}
-    },
-    {
-      "id": 13,
-      "title": "Ring free slots + queue depth (per cam)",
-      "type": "timeseries",
-      "gridPos": {"x": 12, "y": 14, "w": 12, "h": 8},
+      "gridPos": {"x": 0, "y": 15, "w": 16, "h": 8},
       "targets": [
         {"expr": "acq_enc_ring_free{cam=~\"$cam\"}", "legendFormat": "ring free {{cam}}", "refId": "A"},
         {"expr": "acq_enc_queue_depth{cam=~\"$cam\"}", "legendFormat": "queue depth {{cam}}", "refId": "B"}
       ],
-      "fieldConfig": {"defaults": {"unit": "short"}}
+      "fieldConfig": {"defaults": {"unit": "short", "min": 0,
+        "custom": {"lineWidth": 2, "fillOpacity": 0}}},
+      "options": {"legend": {"placement": "bottom", "displayMode": "table", "calcs": ["lastNotNull", "max"]},
+        "tooltip": {"mode": "multi", "sort": "desc"}}
     },
     {
-      "id": 14,
-      "title": "Transfer rate (per minute)",
+      "id": 40, "title": "Frames lost per minute (per cam, by type)",
       "type": "timeseries",
-      "gridPos": {"x": 0, "y": 22, "w": 12, "h": 6},
+      "gridPos": {"x": 16, "y": 15, "w": 8, "h": 8},
+      "targets": [
+        {"expr": "rate(acq_overrun_drops_total{cam=~\"$cam\"}[$__rate_interval]) * 60", "legendFormat": "overrun {{cam}}", "refId": "A"},
+        {"expr": "rate(acq_missed_frames_total{cam=~\"$cam\"}[$__rate_interval]) * 60", "legendFormat": "gaps {{cam}}", "refId": "B"},
+        {"expr": "rate(acq_incomplete_total{cam=~\"$cam\"}[$__rate_interval]) * 60", "legendFormat": "incomplete {{cam}}", "refId": "C"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short", "min": 0, "noValue": "0",
+        "custom": {"lineWidth": 2, "fillOpacity": 0}}},
+      "options": {"legend": {"placement": "bottom", "displayMode": "list", "calcs": ["max"]},
+        "tooltip": {"mode": "multi", "sort": "desc"}},
+      "description": "acq_missed_frames_total value = frame count lost (inc by gap size), not gap event count."
+    },
+
+    {"id": 102, "type": "row", "title": "Host",
+     "gridPos": {"x": 0, "y": 23, "w": 24, "h": 1}, "collapsed": false},
+
+    {
+      "id": 20, "title": "Scratch free", "type": "timeseries",
+      "gridPos": {"x": 0, "y": 24, "w": 8, "h": 6},
+      "targets": [{"expr": "transfer_free_mb", "legendFormat": "scratch free", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "decmbytes",
+        "custom": {"lineWidth": 2, "fillOpacity": 0},
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "red", "value": null}, {"color": "yellow", "value": 5000}, {"color": "green", "value": 20000}
+        ]}}},
+      "options": {"legend": {"showLegend": false}, "tooltip": {"mode": "single"}}
+    },
+    {
+      "id": 21, "title": "Host CPU busy ratio",
+      "type": "timeseries",
+      "gridPos": {"x": 8, "y": 24, "w": 8, "h": 6},
+      "description": "Alert: > 0.90 sustained.",
+      "targets": [{"expr": "host_cpu_busy_ratio", "legendFormat": "cpu busy", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1,
+        "custom": {"lineWidth": 2, "fillOpacity": 0},
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "green", "value": null}, {"color": "yellow", "value": 0.75}, {"color": "red", "value": 0.90}
+        ]}}},
+      "options": {"legend": {"showLegend": false}, "tooltip": {"mode": "single"}}
+    },
+    {
+      "id": 22, "title": "Host memory available",
+      "type": "timeseries",
+      "gridPos": {"x": 16, "y": 24, "w": 8, "h": 6},
+      "description": "Alert: < 1024 MB.",
+      "targets": [{"expr": "host_mem_available_mb", "legendFormat": "mem avail", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "decmbytes",
+        "custom": {"lineWidth": 2, "fillOpacity": 0},
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "red", "value": null}, {"color": "yellow", "value": 2048}, {"color": "green", "value": 4096}
+        ]}}},
+      "options": {"legend": {"showLegend": false}, "tooltip": {"mode": "single"}}
+    },
+    {
+      "id": 23, "title": "Per-worker RSS", "type": "timeseries",
+      "gridPos": {"x": 0, "y": 30, "w": 12, "h": 7},
+      "targets": [{"expr": "worker_rss_mb", "legendFormat": "{{worker}}", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "decmbytes",
+        "custom": {"lineWidth": 2, "fillOpacity": 0}}},
+      "options": {"legend": {"placement": "bottom", "displayMode": "table", "calcs": ["lastNotNull", "max"]},
+        "tooltip": {"mode": "multi", "sort": "desc"}}
+    },
+    {
+      "id": 24, "title": "Per-worker CPU utilisation (fraction of one core)",
+      "type": "timeseries",
+      "gridPos": {"x": 12, "y": 30, "w": 12, "h": 7},
+      "targets": [{"expr": "worker_cpu_ratio", "legendFormat": "{{worker}}", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0,
+        "custom": {"lineWidth": 2, "fillOpacity": 0}}},
+      "options": {"legend": {"placement": "bottom", "displayMode": "table", "calcs": ["lastNotNull", "max"]},
+        "tooltip": {"mode": "multi", "sort": "desc"}},
+      "description": "Python worker only — ffmpeg subprocess CPU not counted here. Use top / pidstat for encoder subprocess CPU."
+    },
+
+    {"id": 103, "type": "row", "title": "Transfer",
+     "gridPos": {"x": 0, "y": 37, "w": 24, "h": 1}, "collapsed": false},
+
+    {
+      "id": 30, "title": "Transfer rate (per minute)", "type": "timeseries",
+      "gridPos": {"x": 0, "y": 38, "w": 16, "h": 7},
       "targets": [
         {"expr": "rate(transfer_uploaded_total[$__rate_interval]) * 60", "legendFormat": "uploaded", "refId": "A"},
         {"expr": "rate(transfer_failures_total[$__rate_interval]) * 60", "legendFormat": "failures", "refId": "B"},
         {"expr": "rate(transfer_discarded_total[$__rate_interval]) * 60", "legendFormat": "discarded", "refId": "C"}
       ],
-      "fieldConfig": {"defaults": {"unit": "short"}}
+      "fieldConfig": {"defaults": {"unit": "short", "min": 0, "noValue": "0",
+        "custom": {"lineWidth": 2, "fillOpacity": 0}}},
+      "options": {"legend": {"placement": "bottom", "displayMode": "table", "calcs": ["lastNotNull", "max"]},
+        "tooltip": {"mode": "multi", "sort": "desc"}}
     },
     {
-      "id": 15,
-      "title": "Per-worker RSS",
-      "type": "timeseries",
-      "gridPos": {"x": 12, "y": 22, "w": 12, "h": 6},
-      "targets": [{"expr": "worker_rss_mb", "legendFormat": "{{worker}}", "refId": "A"}],
-      "fieldConfig": {"defaults": {"unit": "decmbytes"}}
+      "id": 31, "title": "Uploads (24h)", "type": "stat",
+      "gridPos": {"x": 16, "y": 38, "w": 8, "h": 4},
+      "targets": [{"expr": "increase(transfer_uploaded_total[24h])", "refId": "A", "interval": "15s"}],
+      "fieldConfig": {"defaults": {"unit": "short", "noValue": "0",
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "red", "value": null}, {"color": "yellow", "value": 24}, {"color": "green", "value": 72}
+        ]}}},
+      "options": {"colorMode": "value", "graphMode": "area",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}}
     },
     {
-      "id": 16,
-      "title": "Host CPU busy ratio",
-      "type": "timeseries",
-      "gridPos": {"x": 0, "y": 28, "w": 12, "h": 6},
-      "targets": [{"expr": "host_cpu_busy_ratio", "legendFormat": "cpu busy", "refId": "A"}],
-      "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1}}
+      "id": 32, "title": "SMB session", "type": "stat",
+      "gridPos": {"x": 16, "y": 42, "w": 4, "h": 3},
+      "targets": [{"expr": "transfer_session_alive", "refId": "A", "interval": "15s"}],
+      "fieldConfig": {"defaults": {"unit": "short", "min": 0, "max": 1, "noValue": "0",
+        "mappings": [{"type": "value", "options": {
+          "0": {"text": "DOWN", "color": "red", "index": 0},
+          "1": {"text": "UP", "color": "green", "index": 1}
+        }}],
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "red", "value": null}, {"color": "green", "value": 1}
+        ]}}},
+      "options": {"colorMode": "background", "graphMode": "none", "textMode": "value",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}}
     },
     {
-      "id": 17,
-      "title": "Host memory available",
-      "type": "timeseries",
-      "gridPos": {"x": 12, "y": 28, "w": 12, "h": 6},
-      "targets": [{"expr": "host_mem_available_mb", "legendFormat": "mem avail", "refId": "A"}],
-      "fieldConfig": {"defaults": {"unit": "decmbytes"}}
-    },
-    {
-      "id": 18,
-      "title": "Worker restarts (cumulative, per worker)",
-      "type": "timeseries",
-      "gridPos": {"x": 0, "y": 34, "w": 12, "h": 6},
-      "targets": [{"expr": "sv_worker_restarts_total", "legendFormat": "{{worker}}", "refId": "A"}]
-    },
-    {
-      "id": 19,
-      "title": "Frameforge uptime",
-      "type": "stat",
-      "gridPos": {"x": 12, "y": 34, "w": 12, "h": 6},
-      "targets": [{"expr": "frameforge_uptime_seconds", "legendFormat": "uptime", "refId": "A"}],
-      "fieldConfig": {"defaults": {"unit": "s"}}
+      "id": 33, "title": "Broadcasting", "type": "stat",
+      "gridPos": {"x": 20, "y": 42, "w": 4, "h": 3},
+      "targets": [{"expr": "broadcast_enabled", "refId": "A", "interval": "15s"}],
+      "fieldConfig": {"defaults": {"unit": "short", "min": 0, "noValue": "0",
+        "thresholds": {"mode": "absolute", "steps": [
+          {"color": "red", "value": null}, {"color": "yellow", "value": 1}, {"color": "green", "value": 3}
+        ]}}},
+      "options": {"colorMode": "value", "graphMode": "none",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}},
+      "description": "Count of broadcast workers actively publishing. Green threshold hardcoded to 3 — bump when scaling to more cams."
     }
+
   ]
 }

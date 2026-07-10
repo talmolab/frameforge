@@ -9,6 +9,7 @@ dependencies = [
     "prometheus-client",
     "pyyaml",
     "numpy",
+    "h5py",
 ]
 
 [project.optional-dependencies]

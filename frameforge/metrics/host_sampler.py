@@ -13,6 +13,7 @@ from .defs import (
     host_cpu_busy_ratio,
     host_load_avg_1m,
     host_mem_available_mb,
+    worker_cpu_ratio,
     worker_cpu_user_seconds,
     worker_rss_mb,
 )
@@ -29,6 +30,7 @@ class HostSampler:
         self.worker_pids = worker_pids
         self.logger = logging.getLogger("frameforge.host_sampler")
         self._prev_cpu_ticks = None
+        self._prev_worker_cpu: dict[str, tuple[float, float]] = {}
 
     def run(self) -> None:
         self.logger.info(
@@ -40,6 +42,7 @@ class HostSampler:
         self.logger.info("host sampler stopping")
 
     def _sample_all(self):
+        now_monotonic = time.monotonic()
         for worker_name, pid in list(self.worker_pids.items()):
             if not pid:
                 continue
@@ -51,6 +54,14 @@ class HostSampler:
             if cpu_user_seconds is not None:
                 worker_cpu_user_seconds.labels(worker=worker_name).set(
                     round(cpu_user_seconds, 4))
+                prev = self._prev_worker_cpu.get(worker_name)
+                if prev is not None:
+                    prev_time, prev_seconds = prev
+                    interval = now_monotonic - prev_time
+                    if interval > 0:
+                        ratio = max(0.0, (cpu_user_seconds - prev_seconds) / interval)
+                        worker_cpu_ratio.labels(worker=worker_name).set(round(ratio, 4))
+                self._prev_worker_cpu[worker_name] = (now_monotonic, cpu_user_seconds)
 
     def _sample_host(self):
         mem_available_bytes = _read_mem_available_bytes()

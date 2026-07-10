@@ -119,7 +119,7 @@ class Acquisition:
                                 extra={DEDUP_KEY: ("acq_missed_frames", camera_id)})
                     last_block_id = block_id
 
-                    camera_ts_ns = result.GetTimeStamp()
+                    ts_ns = time.time_ns()
 
                     try:
                         slot_index = frame_ring.get_free(
@@ -133,7 +133,7 @@ class Acquisition:
 
                     frame_array = result.GetArray()
                     np.copyto(frame_ring.view(slot_index), frame_array)
-                    data_queue.put((slot_index, camera_ts_ns))
+                    data_queue.put((slot_index, ts_ns))
 
                     if (self.broadcast_ring is not None
                             and iteration_count % _BROADCAST_SUBSAMPLE_EVERY == 0):

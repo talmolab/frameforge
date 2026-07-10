@@ -49,8 +49,8 @@ def _prune_scratch_orphans() -> None:
                         corrupt_pruned += 1
                 except OSError:
                     pass
-            elif filename.endswith(".ts.npy"):
-                mp4_name = filename[:-len(".ts.npy")] + ".mp4"
+            elif filename.endswith(".h5"):
+                mp4_name = filename[:-len(".h5")] + ".mp4"
                 if mp4_name not in names:
                     try:
                         os.remove(full_path)
@@ -60,7 +60,7 @@ def _prune_scratch_orphans() -> None:
 
     if parts_pruned or corrupt_pruned or sidecars_pruned:
         logger.warning(
-            "pruned %d orphan .part + %d suspect .mp4 (<%d bytes) + %d dangling .ts.npy from scratch=%s",
+            "pruned %d orphan .part + %d suspect .mp4 (<%d bytes) + %d dangling .h5 from scratch=%s",
             parts_pruned, corrupt_pruned, _MIN_VALID_MP4_BYTES, sidecars_pruned, SCRATCH_DIR)
 
 

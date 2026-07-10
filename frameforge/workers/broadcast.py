@@ -7,10 +7,7 @@ import time
 from ..config import Config
 from ..context import Context
 from ..media.encoder_backends import FfmpegBackend, MediaBackend
-from ..metrics.defs import (
-    bcast_encode_duration_seconds,
-    bcast_session_alive,
-)
+from ..metrics.defs import bcast_encode_duration_seconds, broadcast_enabled
 from ..core.shm_ring import FrameRing
 
 _BROADCAST_FPS = 10
@@ -53,13 +50,13 @@ class Broadcast:
 
         backend = self._open_with_retry(mount_uri, camera_id)
         if backend is None:
-            bcast_session_alive.labels(cam=camera_id).set(0)
+            broadcast_enabled.set(0)
             self.logger.error(
                 "broadcast %s giving up after %d open attempts",
                 camera_id, _OPEN_MAX_ATTEMPTS)
             return
 
-        bcast_session_alive.labels(cam=camera_id).set(1)
+        broadcast_enabled.set(1)
         try:
             self._serve(backend, camera_id)
         except Exception:
@@ -70,7 +67,7 @@ class Broadcast:
                 backend.close()
             except Exception:
                 pass
-            bcast_session_alive.labels(cam=camera_id).set(0)
+            broadcast_enabled.set(0)
             self.logger.info("broadcast %s stopping", camera_id)
 
     def _open_with_retry(self, mount_uri: str, camera_id: str):
