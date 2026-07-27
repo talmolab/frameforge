@@ -21,10 +21,13 @@ def make_broadcast_backend(config: Config) -> MediaBackend:
     bcast = config.broadcast
     return FfmpegBackend(
         codec_args=[
-            "-c:v", "hevc_qsv",
+            "-c:v", "h264_qsv",
             "-preset", "veryfast",
+            "-profile:v", "baseline",
             "-b:v", str(int(bcast.bitrate_mbps * 1_000_000)),
             "-look_ahead", "0",
+            "-g", "20",
+            "-bf", "0",
             "-pix_fmt", "nv12",
         ],
         output_format="rtsp",

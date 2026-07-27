@@ -25,9 +25,11 @@ _DEFAULT_GAIN = 0.0
 
 
 class Camera:
-    def __init__(self, camera_config: CameraCfg, full_config: Config) -> None:
+    def __init__(self, camera_config: CameraCfg, full_config: Config,
+                 ip_override: str | None = None) -> None:
         self.camera_config = camera_config
         self.config = full_config
+        self.ip_override = ip_override
         self.logger = logging.getLogger("frameforge.camera")
 
         self.pylon_camera = None
@@ -85,15 +87,15 @@ class Camera:
 
     def _assign_ip(self, tl_factory) -> None:
         cfg = self.camera_config
-        slot = next(
-            (i + 1 for i, cam in enumerate(self.config.cameras)
-             if cam.id == cfg.id),
-            0,
-        )
-        if slot == 0:
-            self.logger.warning("cam=%s not in config.cameras; skip IP assign", cfg.id)
-            return
-        desired_ip = f"{_GIGE_SUBNET_PREFIX}.{_GIGE_IP_OFFSET + slot}"
+        if self.ip_override:
+            desired_ip = self.ip_override
+        else:
+            cam_number = _cam_number(cfg.id)
+            if cam_number is None:
+                self.logger.warning(
+                    "cam=%s id has no trailing number; skip IP assign", cfg.id)
+                return
+            desired_ip = f"{_GIGE_SUBNET_PREFIX}.{_GIGE_IP_OFFSET + cam_number}"
 
         try:
             gige_tl = tl_factory.CreateTl("BaslerGigE")
@@ -173,6 +175,11 @@ class Camera:
             pylon_camera.MaxNumBuffer.SetValue(_MAX_NUM_BUFFER)
         except Exception:
             pass
+
+
+def _cam_number(cam_id: str) -> int | None:
+    tail = cam_id.rsplit("_", 1)[-1]
+    return int(tail) if tail.isdigit() else None
 
 
 def _try_set(pylon_camera, node_name, value) -> bool:

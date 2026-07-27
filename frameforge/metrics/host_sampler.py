@@ -1,6 +1,8 @@
 """Per-process + host-level stats sampler.
 
 - Per-worker: worker_rss_mb{worker}, worker_cpu_user_seconds{worker}
+  For enc: workers the ffmpeg child's CPU is added in, since that child (not
+  the Python parent) is where the x264 work actually happens.
 - Host-level: host_mem_available_mb, host_load_avg_1m, host_cpu_busy_ratio
 """
 
@@ -52,6 +54,11 @@ class HostSampler:
                     round(rss_bytes / _BYTES_PER_MB, 4))
             cpu_user_seconds = _read_cpu_user_seconds(pid)
             if cpu_user_seconds is not None:
+                if worker_name.startswith("enc:"):
+                    for child_pid in _child_pids(pid):
+                        child_cpu = _read_cpu_user_seconds(child_pid)
+                        if child_cpu is not None:
+                            cpu_user_seconds += child_cpu
                 worker_cpu_user_seconds.labels(worker=worker_name).set(
                     round(cpu_user_seconds, 4))
                 prev = self._prev_worker_cpu.get(worker_name)
@@ -92,6 +99,21 @@ class HostSampler:
             if remaining <= 0:
                 return
             time.sleep(min(remaining, 0.5))
+
+
+def _child_pids(pid):
+    pids = []
+    try:
+        tids = os.listdir("/proc/%d/task" % pid)
+    except OSError:
+        return pids
+    for tid in tids:
+        try:
+            with open("/proc/%d/task/%s/children" % (pid, tid)) as children_file:
+                pids.extend(int(value) for value in children_file.read().split())
+        except (OSError, ValueError):
+            continue
+    return pids
 
 
 def _read_rss_bytes(pid):

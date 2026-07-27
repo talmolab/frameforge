@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 from pypylon import pylon
 
-from frameforge.config import load_config
+from frameforge.config import CameraCfg, load_config
 from frameforge.media.camera import Camera
 
 os.environ.setdefault("FF_HARDWARE", "ms01")
@@ -22,14 +22,7 @@ CHARUCO_TARGET = 55
 RTSP_URL = "rtsp://127.0.0.1:8554/test_cam"
 BROADCAST_FPS = 10
 CHARUCO_EVERY = 15
-
-
-def camera_config_for(serial_number):
-    config = load_config()
-    for camera_config in config.cameras:
-        if camera_config.serial == serial_number:
-            return camera_config, config
-    raise ValueError(f"serial {serial_number} not found in cameras.yaml")
+CALIB_IP = "192.168.10.200"
 
 
 def build_charuco_detector():
@@ -66,7 +59,7 @@ class Broadcaster:
              "-f", "rawvideo", "-pix_fmt", "gray",
              "-s", f"{width}x{height}", "-r", str(BROADCAST_FPS), "-i", "-",
              "-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency",
-             "-pix_fmt", "yuv420p",
+             "-profile:v", "baseline", "-g", "20", "-pix_fmt", "yuv420p",
              "-f", "rtsp", "-rtsp_transport", "tcp", RTSP_URL],
             stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -101,9 +94,10 @@ def _make_broadcaster(width, height):
         return None
 
 
-def main(serial_number):
-    camera_config, config = camera_config_for(serial_number)
-    camera = Camera(camera_config, config)
+def main(serial_number, test_ip):
+    config = load_config()
+    camera_config = CameraCfg(id="calib", serial=serial_number)
+    camera = Camera(camera_config, config, ip_override=test_ip)
     camera.open()
     pylon_camera = camera.pylon_camera
     pylon_camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
@@ -111,7 +105,7 @@ def main(serial_number):
     broadcaster = _make_broadcaster(
         pylon_camera.Width.GetValue(), pylon_camera.Height.GetValue())
 
-    print(f"camera {serial_number} — live calibration readout (Ctrl-C to stop)")
+    print(f"camera {serial_number} @ {test_ip} — live calibration readout (Ctrl-C to stop)")
     print(f"targets: focus>={FOCUS_MIN:.0f}  p5>={P5_MIN:.0f}  p95<={P95_MAX:.0f}  "
           f"p50 in [{P50_RANGE[0]:.0f},{P50_RANGE[1]:.0f}]  charuco={CHARUCO_TARGET}")
     if broadcaster:
@@ -186,6 +180,6 @@ def main(serial_number):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        sys.exit("usage: calibrator.py <serial>")
-    main(sys.argv[1])
+    if not 2 <= len(sys.argv) <= 3:
+        sys.exit(f"usage: calibrator.py <serial> [test_ip]  (default {CALIB_IP})")
+    main(sys.argv[1], sys.argv[2] if len(sys.argv) == 3 else CALIB_IP)

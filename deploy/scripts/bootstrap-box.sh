@@ -36,15 +36,15 @@ echo "  with broadcast: $WITH_BROADCAST"
 echo
 
 # ----- 1. Hostname -----
-echo "[1/9] Setting hostname..."
+echo "[1/10] Setting hostname..."
 hostnamectl set-hostname "$HOSTNAME"
 
 # ----- 2. Apt repos + base packages -----
-echo "[2/9] Enabling multiverse + apt update..."
+echo "[2/10] Enabling multiverse + apt update..."
 add-apt-repository -y multiverse
 apt-get update -qq
 
-echo "[3/9] Installing base packages..."
+echo "[3/10] Installing base packages..."
 apt-get install -y --no-install-recommends \
     avahi-daemon \
     chrony \
@@ -54,7 +54,7 @@ apt-get install -y --no-install-recommends \
     sudo
 
 if [ "$WITH_BROADCAST" = "true" ]; then
-    echo "[3b/9] Installing broadcast packages (ffmpeg, intel-driver, oneVPL, mediamtx)..."
+    echo "[3b/10] Installing broadcast packages (ffmpeg, intel-driver, oneVPL, mediamtx)..."
     apt-get install -y --no-install-recommends \
         ffmpeg \
         intel-media-va-driver-non-free \
@@ -71,7 +71,7 @@ if [ "$WITH_BROADCAST" = "true" ]; then
 fi
 
 # ----- 4. Monitoring stack -----
-echo "[4/9] Installing prometheus + grafana..."
+echo "[4/10] Installing prometheus + grafana..."
 apt-get install -y --no-install-recommends prometheus
 # Grafana lives in its own apt repo
 if [ ! -f /etc/apt/sources.list.d/grafana.list ]; then
@@ -99,7 +99,7 @@ $nrconf{override_rc}{qr(^frameforge\.service$)} = 0;
 EOF
 
 # ----- 5. talmolab user + groups -----
-echo "[5/9] Creating talmolab user..."
+echo "[5/10] Creating talmolab user..."
 if ! id -u talmolab >/dev/null 2>&1; then
     useradd -m -s /bin/bash talmolab
     echo "  Set password for talmolab:"
@@ -108,13 +108,13 @@ fi
 usermod -aG sudo,video,render talmolab
 
 # ----- 6. System dirs (owned by talmolab) -----
-echo "[6/9] Creating system dirs..."
+echo "[6/10] Creating system dirs..."
 install -d -m 755 -o talmolab -g talmolab /usr/local/lib/frameforge
 install -d -m 755 -o talmolab -g talmolab /var/lib/frameforge/scratch
 install -d -m 755 -o root -g root /etc/frameforge
 
 # ----- 7. System drop-ins (kernel + journald) -----
-echo "[7/9] Installing system drop-ins..."
+echo "[7/10] Installing system drop-ins..."
 cp "$DEPLOY_DIR/system/sysctl-frameforge.conf" /etc/sysctl.d/99-frameforge.conf
 sysctl --system >/dev/null
 
@@ -123,7 +123,7 @@ cp "$DEPLOY_DIR/system/journald-frameforge.conf" /etc/systemd/journald.conf.d/99
 systemctl restart systemd-journald
 
 # ----- 8. Camera-facing NIC (netplan/networkd — Ubuntu Server default) -----
-echo "[8/9] Configuring camera NIC ($CAMERA_IFACE) via netplan..."
+echo "[8/10] Configuring camera NIC ($CAMERA_IFACE) via netplan..."
 install -m 600 /dev/null /etc/netplan/99-frameforge-cams.yaml
 cat > /etc/netplan/99-frameforge-cams.yaml <<EOF
 network:
@@ -141,10 +141,22 @@ EOF
 netplan apply
 
 # ----- 9. uv (Python package manager) -----
-echo "[9/9] Installing uv..."
+echo "[9/10] Installing uv..."
 if ! command -v uv >/dev/null; then
     curl -LsSf https://astral.sh/uv/install.sh | sudo -u talmolab sh
 fi
+
+# ----- 10. Headless boot (unattended appliance, no login required) -----
+echo "[10/10] Configuring headless boot..."
+# frameforge is a system service (multi-user.target), so it already starts at
+# boot with no login. Drop the graphical target so the box no longer sits at a
+# gdm3 login screen and no longer holds the RAM gnome-shell/gdm3 would use.
+systemctl set-default multi-user.target
+
+# Don't stall boot on network-online.target: networkd brings the uplink up on
+# its own and frameforge/heartbeat retry, so the wait only adds a ~2 min hang
+# (and currently fails) — worst after a room move when the link is slow to settle.
+systemctl disable --now systemd-networkd-wait-online.service 2>/dev/null || true
 
 echo
 echo "=== bootstrap-box.sh complete ==="
@@ -154,6 +166,7 @@ echo "Verify:"
 echo "  hostnamectl                           # hostname set"
 echo "  systemctl status avahi-daemon         # mDNS up"
 echo "  systemctl status ssh                  # ssh accessible"
+echo "  systemctl get-default                 # multi-user.target (no GUI/login)"
 echo "  ip link show $CAMERA_IFACE            # mtu 9000"
 echo "  sysctl net.core.rmem_max              # 33554432"
 echo "  timedatectl status                    # NTP synced"
