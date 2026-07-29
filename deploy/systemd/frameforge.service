@@ -23,7 +23,7 @@ Restart=no
 
 # Two-signal drain:
 #   SIGTERM (systemctl stop)        -> soft, finish current chunk (up to chunk_seconds)
-#   SIGINT  (systemctl kill -s INT) -> hard, finalize partial mp4 immediately
+#   SIGINT  (systemctl kill -s INT) -> hard, abort chunk now (.part discarded next boot)
 KillMode=mixed
 KillSignal=SIGTERM
 TimeoutStopSec=3800

@@ -1,6 +1,6 @@
 # MS-01 setup
 
-_Last updated: 2026-06-30_
+_Last updated: 2026-07-29_
 
 Two scripts handle the install. Both idempotent — safe to re-run.
 
@@ -18,7 +18,7 @@ sudo HOSTNAME=talmo-rig01 CAMERA_IFACE=enp1s0 \
      ./deploy/scripts/bootstrap-box.sh --with-broadcast
 ```
 
-Does: hostname, apt installs (multiverse + ffmpeg + intel-driver + mediamtx + prometheus + grafana + avahi + chrony + ssh + python3.13 + uv), talmolab user (prompts for password), system drop-ins (sysctl + journald), camera NIC profile (192.168.10.1/24 + jumbo).
+Does: hostname, apt installs (multiverse + ffmpeg + intel-driver + mediamtx + prometheus + grafana + avahi + chrony + ssh + uv), talmolab user (prompts for password), system drop-ins (sysctl + journald), camera NIC profile (192.168.10.1/24, MTU 9000, jumbo off), headless boot (multi-user target, no network-wait — untested until the next box move).
 
 Drop `--with-broadcast` to skip ffmpeg + intel-driver + mediamtx (broadcast off).
 
@@ -32,7 +32,7 @@ sudo cp config/cameras.example.yaml /etc/frameforge/cameras.yaml
 sudoedit /etc/frameforge/cameras.yaml      # set real serials
 ```
 
-Order in cameras.yaml = IP slot (first → `192.168.10.101`, second → `.102`, ...).
+Camera IP is derived from its id (`cam_0N → 192.168.10.10N`, e.g. `cam_03 → .103`) and applied via ForceIp on startup — independent of order in the file. List them N-ordered anyway for readability.
 
 ## 3. Install frameforge
 
@@ -70,11 +70,14 @@ Browser (lab LAN):
 ```bash
 journalctl -u frameforge -f                # live tail
 journalctl -u frameforge --since='-7d'     # last week
-systemctl stop frameforge                  # soft drain (finishes current chunk)
-systemctl kill -s INT frameforge           # hard drain (finalize partial mp4)
+systemctl restart frameforge               # graceful restart: drain current chunk (up to 1h), then start
+systemctl stop frameforge                  # soft drain: finish current chunk, then stop (no auto-restart)
+sudo systemctl kill -s INT --kill-who=main frameforge   # hard drain: abort chunk now (.part discarded next boot)
 ```
 
 ## Re-runs / updates
+
+Code lives at `/usr/local/lib/frameforge` (FF_HOME); its git origin is the checkout you first installed from — pull there, or just re-run the installer to sync.
 
 ```bash
 # Update frameforge code only:
@@ -88,7 +91,7 @@ sudo HOSTNAME=talmo-rig01 CAMERA_IFACE=enp1s0 \
 
 ## Lab-IT one-time setup (out of scope of these scripts)
 
-- **Switch**: enable jumbo frames (MTU 9216) on camera-facing ports
+- **Switch**: jumbo frames optional — currently OFF (packets stay 1500). Enable on the switch + set `jumbo_frames: true` only if dropped/incomplete frames appear.
 - **Switch IP**: set in your camera subnet (e.g., `192.168.10.2`) via UniFi mobile app or switch web UI
-- **Cameras**: set static IPs in `192.168.10.101..106` via Basler Pylon IP Configurator (one-time per camera, persistent in EEPROM)
+- **Cameras**: no manual IP setup — frameforge assigns `cam_0N → 192.168.10.10N` via ForceIp on startup. Cameras only need to be reachable on the camera subnet (DHCP or link-local).
 - **Cameras .pfs** (optional): tune in Basler Pylon Viewer + save .pfs file if you want non-default exposure/gain. Frameforge applies sensible programmatic defaults if no .pfs supplied.

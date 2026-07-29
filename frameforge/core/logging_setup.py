@@ -4,9 +4,13 @@ Canonical line format: ``YYYY-MM-DD HH:MM:SS LEVEL [worker] message``.
 The ``[worker]`` tag comes from ``multiprocessing.Process.name`` (set by the
 supervisor when spawning each worker) via ``%(processName)s``.
 
-Call sites that want dedup attach ``extra={DEDUP_KEY: <key>, DEDUP_INTERVAL_S:
-<seconds>}`` to the log call. Same key within window is dropped; first call
-always fires; interval defaults to ``_DEDUP_DEFAULT_INTERVAL_S`` when not set.
+Dedup is automatic: identical lines (same logger + level + fully-formatted
+message) collapse within a time window, first occurrence always fires, and the
+key re-fires once the interval elapses — no call-site changes needed. Call
+sites can still attach ``extra={DEDUP_KEY: <key>, DEDUP_INTERVAL_S: <seconds>}``
+to group differently-worded lines under one key or override the window.
+Records carrying a traceback (``logger.exception``) are never auto-deduped, so
+distinct failures always surface.
 """
 
 import logging
@@ -16,6 +20,8 @@ import time
 _FORMAT = "%(asctime)s %(levelname)-5s [%(processName)s] %(message)s"
 _DATEFMT = "%Y-%m-%d %H:%M:%S"
 _DEDUP_DEFAULT_INTERVAL_S = 30.0
+_DEDUP_MAX_KEYS = 2048
+_DEDUP_EVICT_TTL_S = 300.0
 
 DEDUP_KEY = "dedup_key"
 DEDUP_INTERVAL_S = "dedup_interval_s"
@@ -30,14 +36,23 @@ class _DedupFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         key = getattr(record, DEDUP_KEY, None)
         if key is None:
-            return True
+            if record.exc_info:
+                return True
+            key = (record.name, record.levelno, record.getMessage())
         interval_s = getattr(record, DEDUP_INTERVAL_S, self._default_interval_s)
         now = time.monotonic()
         last = self._last_emit.get(key)
         if last is not None and now - last < interval_s:
             return False
         self._last_emit[key] = now
+        if len(self._last_emit) > _DEDUP_MAX_KEYS:
+            self._evict(now)
         return True
+
+    def _evict(self, now: float) -> None:
+        cutoff = now - _DEDUP_EVICT_TTL_S
+        for key in [k for k, seen in self._last_emit.items() if seen < cutoff]:
+            del self._last_emit[key]
 
 
 def setup_logging(level: int = logging.INFO) -> None:

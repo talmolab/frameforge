@@ -30,14 +30,15 @@
     {
       "id": 1, "title": "Overall status", "type": "stat",
       "gridPos": {"x": 0, "y": 1, "w": 6, "h": 4},
-      "targets": [{"expr": "min(acq_camera_alive) * on() transfer_session_alive", "refId": "A", "interval": "15s"}],
+      "targets": [{"expr": "min(up) + min(up) * on() min(acq_camera_alive) * on() transfer_session_alive", "refId": "A", "interval": "15s", "instant": true}],
       "fieldConfig": {"defaults": {"unit": "short", "noValue": "0",
         "mappings": [{"type": "value", "options": {
-          "0": {"text": "DEGRADED", "color": "red", "index": 0},
-          "1": {"text": "OK", "color": "green", "index": 1}
+          "0": {"text": "DOWN", "color": "red", "index": 0},
+          "1": {"text": "DEGRADED", "color": "orange", "index": 1},
+          "2": {"text": "OK", "color": "green", "index": 2}
         }}],
         "thresholds": {"mode": "absolute", "steps": [
-          {"color": "red", "value": null}, {"color": "green", "value": 1}
+          {"color": "red", "value": null}, {"color": "orange", "value": 1}, {"color": "green", "value": 2}
         ]}}},
       "options": {"colorMode": "background", "graphMode": "none", "textMode": "value",
         "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}}
@@ -45,7 +46,7 @@
     {
       "id": 2, "title": "Uptime", "type": "stat",
       "gridPos": {"x": 6, "y": 1, "w": 6, "h": 4},
-      "targets": [{"expr": "frameforge_uptime_seconds", "refId": "A", "interval": "15s"}],
+      "targets": [{"expr": "frameforge_uptime_seconds", "refId": "A", "interval": "15s", "instant": true}],
       "fieldConfig": {"defaults": {"unit": "s",
         "thresholds": {"mode": "absolute", "steps": [
           {"color": "green", "value": null}
@@ -56,7 +57,7 @@
     {
       "id": 3, "title": "Cameras open", "type": "stat",
       "gridPos": {"x": 12, "y": 1, "w": 6, "h": 4},
-      "targets": [{"expr": "sum(acq_camera_alive)", "refId": "A", "interval": "15s"}],
+      "targets": [{"expr": "sum(acq_camera_alive)", "refId": "A", "interval": "15s", "instant": true}],
       "fieldConfig": {"defaults": {"unit": "short", "noValue": "0",
         "thresholds": {"mode": "absolute", "steps": [
           {"color": "red", "value": null}, {"color": "yellow", "value": 1}, {"color": "green", "value": 3}
@@ -252,7 +253,7 @@
     {
       "id": 32, "title": "SMB session", "type": "stat",
       "gridPos": {"x": 16, "y": 42, "w": 4, "h": 3},
-      "targets": [{"expr": "transfer_session_alive", "refId": "A", "interval": "15s"}],
+      "targets": [{"expr": "transfer_session_alive", "refId": "A", "interval": "15s", "instant": true}],
       "fieldConfig": {"defaults": {"unit": "short", "min": 0, "max": 1, "noValue": "0",
         "mappings": [{"type": "value", "options": {
           "0": {"text": "DOWN", "color": "red", "index": 0},
@@ -267,7 +268,7 @@
     {
       "id": 33, "title": "Broadcasting", "type": "stat",
       "gridPos": {"x": 20, "y": 42, "w": 4, "h": 3},
-      "targets": [{"expr": "broadcast_enabled", "refId": "A", "interval": "15s"}],
+      "targets": [{"expr": "broadcast_enabled", "refId": "A", "interval": "15s", "instant": true}],
       "fieldConfig": {"defaults": {"unit": "short", "min": 0, "noValue": "0",
         "thresholds": {"mode": "absolute", "steps": [
           {"color": "red", "value": null}, {"color": "yellow", "value": 1}, {"color": "green", "value": 3}
