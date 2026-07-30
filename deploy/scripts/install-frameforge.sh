@@ -114,11 +114,21 @@ datasources:
     isDefault: true
 EOF
 
+# Anonymous viewer access so dashboard deep-links open with no login.
+# Env drop-in (not grafana.ini) so an apt upgrade can't clobber it.
+install -d /etc/systemd/system/grafana-server.service.d
+cat > /etc/systemd/system/grafana-server.service.d/10-frameforge-anon.conf <<'EOF'
+[Service]
+Environment=GF_AUTH_ANONYMOUS_ENABLED=true
+Environment=GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+EOF
+
 # ----- 7. Enable + reload + start -----
 echo "[7/7] Enabling services..."
 systemctl daemon-reload
 systemctl enable --now prometheus.service
 systemctl enable --now grafana-server.service
+systemctl restart grafana-server.service   # apply the anonymous-access drop-in
 [ -f /etc/systemd/system/mediamtx.service ] && systemctl enable --now mediamtx.service
 systemctl enable heartbeat.timer
 systemctl start heartbeat.timer
