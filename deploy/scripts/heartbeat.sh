@@ -11,8 +11,14 @@
 set -euo pipefail
 
 SECRETS=/etc/frameforge/secrets.env
-[ -f "$SECRETS" ] || { echo "missing $SECRETS" >&2; exit 1; }
-set -a; . "$SECRETS"; set +a
+[ -f "$SECRETS" ] || {
+    echo "missing $SECRETS" >&2
+    exit 1
+}
+set -a
+# shellcheck source=/dev/null
+. "$SECRETS"
+set +a
 : "${VAST_USER:?}"
 : "${VAST_PASS:?}"
 
@@ -21,14 +27,17 @@ HB_RETRY_SECONDS="${HB_RETRY_SECONDS:-15}"
 
 write_heartbeat() {
     local ip
-    ip="$(ip -4 -o addr show scope global \
-          | awk '{print $4}' | cut -d/ -f1 \
-          | grep -v '^192\.168\.10\.' | head -1 || true)"
-    [ -n "$ip" ] || { echo "no routable uplink IP yet" >&2; return 1; }
+    ip="$(ip -4 -o addr show scope global |
+        awk '{print $4}' | cut -d/ -f1 |
+        grep -v '^192\.168\.10\.' | head -1 || true)"
+    [ -n "$ip" ] || {
+        echo "no routable uplink IP yet" >&2
+        return 1
+    }
 
-    export HB_HOSTNAME="$(hostnamectl --static)"
-    export HB_IP="$ip"
-    export HB_TS="$(date -Iseconds)"
+    HB_HOSTNAME="$(hostnamectl --static)"
+    HB_TS="$(date -Iseconds)"
+    export HB_HOSTNAME HB_IP="$ip" HB_TS
 
     /usr/local/lib/frameforge/.venv/bin/python <<'PY'
 import json, os, yaml, smbclient

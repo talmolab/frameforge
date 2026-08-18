@@ -14,7 +14,7 @@ Two scripts handle the install. Both idempotent — safe to re-run.
 ## 1. Bootstrap the box (OS-level)
 
 ```bash
-sudo HOSTNAME=talmo-rig01 CAMERA_IFACE=enp1s0 \
+sudo FF_HOSTNAME=talmo-rig01 CAMERA_IFACE=enp1s0 \
      ./deploy/scripts/bootstrap-box.sh --with-broadcast
 ```
 
@@ -85,7 +85,7 @@ sudo GIT_REF=main ./deploy/scripts/install-frameforge.sh
 sudo systemctl restart frameforge
 
 # Re-run bootstrap (idempotent — adds new apt deps, refreshes drop-ins):
-sudo HOSTNAME=talmo-rig01 CAMERA_IFACE=enp1s0 \
+sudo FF_HOSTNAME=talmo-rig01 CAMERA_IFACE=enp1s0 \
      ./deploy/scripts/bootstrap-box.sh --with-broadcast
 ```
 

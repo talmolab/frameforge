@@ -6,10 +6,10 @@
 # frameforge itself; that's install-frameforge.sh.
 #
 # Usage (run as root):
-#   sudo HOSTNAME=talmo-rig01 CAMERA_IFACE=enp1s0 ./bootstrap-box.sh [--with-broadcast]
+#   sudo FF_HOSTNAME=talmo-rig01 CAMERA_IFACE=enp1s0 ./bootstrap-box.sh [--with-broadcast]
 #
 # Env:
-#   HOSTNAME       — rig hostname to set (required)
+#   FF_HOSTNAME    — rig hostname to set (required; not HOSTNAME, which bash presets)
 #   CAMERA_IFACE   — camera-facing NIC name (required, find via `ip link`)
 #   WITH_BROADCAST — "true" if --with-broadcast flag passed
 
@@ -19,25 +19,28 @@ WITH_BROADCAST=false
 for arg in "$@"; do
     case "$arg" in
         --with-broadcast) WITH_BROADCAST=true ;;
-        *) echo "Unknown arg: $arg"; exit 1 ;;
+        *)
+            echo "Unknown arg: $arg"
+            exit 1
+            ;;
     esac
 done
 
-: "${HOSTNAME:?HOSTNAME env var required (e.g. talmo-rig01)}"
+: "${FF_HOSTNAME:?FF_HOSTNAME env var required (e.g. talmo-rig01)}"
 : "${CAMERA_IFACE:?CAMERA_IFACE env var required (e.g. enp1s0; check 'ip link')}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 echo "=== bootstrap-box.sh ==="
-echo "  hostname:       $HOSTNAME"
+echo "  hostname:       $FF_HOSTNAME"
 echo "  camera iface:   $CAMERA_IFACE"
 echo "  with broadcast: $WITH_BROADCAST"
 echo
 
 # ----- 1. Hostname -----
 echo "[1/10] Setting hostname..."
-hostnamectl set-hostname "$HOSTNAME"
+hostnamectl set-hostname "$FF_HOSTNAME"
 
 # ----- 2. Apt repos + base packages -----
 echo "[2/10] Enabling multiverse + apt update..."
@@ -52,6 +55,7 @@ apt-get install -y --no-install-recommends \
     smbclient \
     curl \
     sudo
+systemctl enable --now chrony # NTP — chunk timestamps depend on a synced clock
 
 if [ "$WITH_BROADCAST" = "true" ]; then
     echo "[3b/10] Installing broadcast packages (ffmpeg, intel-driver, oneVPL, mediamtx)..."
@@ -61,11 +65,20 @@ if [ "$WITH_BROADCAST" = "true" ]; then
         libvpl2 \
         vainfo \
         intel-gpu-tools
-    # mediamtx ships as a binary, not via apt — install from GitHub release
+    # mediamtx ships as a binary, not via apt — install pinned release from GitHub
     if ! command -v mediamtx >/dev/null; then
-        MEDIAMTX_VERSION="1.9.3"  # pin a known-good version
-        curl -L "https://github.com/bluenviron/mediamtx/releases/download/v${MEDIAMTX_VERSION}/mediamtx_v${MEDIAMTX_VERSION}_linux_amd64.tar.gz" \
-            | tar -xz -C /usr/local/bin/ mediamtx
+        MEDIAMTX_VERSION="1.9.3"
+        MEDIAMTX_SHA256="" # pin the asset sha256 to verify the download (recommended)
+        tgz="$(mktemp)"
+        curl -fSL "https://github.com/bluenviron/mediamtx/releases/download/v${MEDIAMTX_VERSION}/mediamtx_v${MEDIAMTX_VERSION}_linux_amd64.tar.gz" -o "$tgz"
+        if [ -n "$MEDIAMTX_SHA256" ]; then
+            echo "$MEDIAMTX_SHA256  $tgz" | sha256sum -c - || {
+                echo "mediamtx checksum mismatch" >&2
+                exit 1
+            }
+        fi
+        tar -xzf "$tgz" -C /usr/local/bin/ mediamtx
+        rm -f "$tgz"
         chmod +x /usr/local/bin/mediamtx
     fi
 fi
@@ -79,22 +92,20 @@ if [ ! -f /etc/apt/sources.list.d/grafana.list ]; then
     mkdir -p /etc/apt/keyrings/
     curl -fsSL https://apt.grafana.com/gpg.key | gpg --dearmor -o /etc/apt/keyrings/grafana.gpg
     echo "deb [signed-by=/etc/apt/keyrings/grafana.gpg] https://apt.grafana.com stable main" \
-        > /etc/apt/sources.list.d/grafana.list
+        >/etc/apt/sources.list.d/grafana.list
     apt-get update -qq
 fi
 apt-get install -y --no-install-recommends grafana
 
-# Pin observability + broadcast deps so unattended-upgrades doesn't restart them and
-# blank dashboards / broadcast mid-recording; upgrades become operator-driven.
+# Pin so unattended-upgrades can't restart them mid-recording (operator-driven upgrades).
 apt-mark hold prometheus grafana
 if [ "$WITH_BROADCAST" = "true" ]; then
     apt-mark hold ffmpeg intel-media-va-driver-non-free libvpl2
 fi
 
-# Belt-and-braces: even if a future apt run touches something frameforge links to,
-# needrestart won't auto-restart the service.
+# Stop needrestart from auto-restarting frameforge after apt runs.
 install -d /etc/needrestart/conf.d
-cat > /etc/needrestart/conf.d/frameforge.conf <<'EOF'
+cat >/etc/needrestart/conf.d/frameforge.conf <<'EOF'
 $nrconf{override_rc}{qr(^frameforge\.service$)} = 0;
 EOF
 
@@ -125,14 +136,13 @@ systemctl restart systemd-journald
 # ----- 8. Camera-facing NIC (netplan/networkd — Ubuntu Server default) -----
 echo "[8/10] Configuring camera NIC ($CAMERA_IFACE) via netplan..."
 install -m 600 /dev/null /etc/netplan/99-frameforge-cams.yaml
-cat > /etc/netplan/99-frameforge-cams.yaml <<EOF
+cat >/etc/netplan/99-frameforge-cams.yaml <<EOF
 network:
   version: 2
   renderer: networkd
   ethernets:
     $CAMERA_IFACE:
       addresses: [192.168.10.1/24]
-      mtu: 9000
       dhcp4: false
       dhcp6: false
       link-local: []
@@ -146,16 +156,12 @@ if ! command -v uv >/dev/null; then
     curl -LsSf https://astral.sh/uv/install.sh | sudo -u talmolab sh
 fi
 
-# ----- 10. Headless boot (unattended appliance, no login required) -----
+# ----- 10. Headless boot (no GUI/login) -----
 echo "[10/10] Configuring headless boot..."
-# frameforge is a system service (multi-user.target), so it already starts at
-# boot with no login. Drop the graphical target so the box no longer sits at a
-# gdm3 login screen and no longer holds the RAM gnome-shell/gdm3 would use.
+# Boot to console, not gdm3 — frameforge runs at multi-user.target and frees the GUI's RAM.
 systemctl set-default multi-user.target
 
-# Don't stall boot on network-online.target: networkd brings the uplink up on
-# its own and frameforge/heartbeat retry, so the wait only adds a ~2 min hang
-# (and currently fails) — worst after a room move when the link is slow to settle.
+# Don't block boot on network-online.target — networkd/heartbeat retry on their own.
 systemctl disable --now systemd-networkd-wait-online.service 2>/dev/null || true
 
 echo
@@ -167,7 +173,7 @@ echo "  hostnamectl                           # hostname set"
 echo "  systemctl status avahi-daemon         # mDNS up"
 echo "  systemctl status ssh                  # ssh accessible"
 echo "  systemctl get-default                 # multi-user.target (no GUI/login)"
-echo "  ip link show $CAMERA_IFACE            # mtu 9000"
+echo "  ip link show $CAMERA_IFACE            # camera NIC up"
 echo "  sysctl net.core.rmem_max              # 33554432"
 echo "  timedatectl status                    # NTP synced"
 if [ "$WITH_BROADCAST" = "true" ]; then

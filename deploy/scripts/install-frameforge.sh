@@ -15,10 +15,8 @@
 set -euo pipefail
 
 GIT_REF="${GIT_REF:-main}"
+GIT_REMOTE="${GIT_REMOTE:-https://github.com/talmolab/frameforge.git}"
 FF_HOME="${FF_HOME:-/usr/local/lib/frameforge}"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-REPO_ROOT="$(cd "$DEPLOY_DIR/.." && pwd)"
 
 echo "=== install-frameforge.sh ==="
 echo "  install dir: $FF_HOME"
@@ -28,20 +26,21 @@ echo
 # ----- 1. Code: git clone or pull -----
 echo "[1/7] Syncing code to $FF_HOME..."
 if [ ! -d "$FF_HOME/.git" ]; then
-    # Fresh clone — use repo root as source if running from a checkout
-    sudo -u talmolab git clone "$REPO_ROOT" "$FF_HOME"
+    sudo -u talmolab git clone "$GIT_REMOTE" "$FF_HOME"
 fi
 cd "$FF_HOME"
 sudo -u talmolab git fetch --all --tags
 sudo -u talmolab git checkout "$GIT_REF"
-sudo -u talmolab git pull --ff-only origin "$GIT_REF" || true
+sudo -u talmolab git pull --ff-only origin "$GIT_REF"
+
+DEPLOY_DIR="$FF_HOME/deploy"
 
 # ----- 2. Python venv via uv -----
 # pyproject.toml pins python-preference=only-managed, so uv fetches its own
 # interpreter under ~/.local/share/uv/python/. System Python is never linked
 # — apt/needrestart can never trigger a frameforge restart from below.
 echo "[2/7] Syncing venv via uv..."
-sudo -u talmolab bash -c "cd $FF_HOME && /home/talmolab/.local/bin/uv sync"
+sudo -u talmolab -H bash -lc "cd '$FF_HOME' && uv sync"
 
 # ----- 3. Frameforge runtime config (skip if present) -----
 echo "[3/7] Frameforge runtime config..."
@@ -58,8 +57,8 @@ if [ ! -f /etc/frameforge/cameras.yaml ]; then
     echo "    sudoedit /etc/frameforge/cameras.yaml"
 fi
 if [ ! -f /etc/frameforge/secrets.env ]; then
-    cat > /etc/frameforge/secrets.env <<'EOF'
-VAST_USER=cdracos
+    cat >/etc/frameforge/secrets.env <<'EOF'
+VAST_USER=changeme
 VAST_PASS=changeme
 EOF
     chmod 600 /etc/frameforge/secrets.env
@@ -70,9 +69,9 @@ fi
 # ----- 4. Systemd units -----
 echo "[4/7] Installing systemd units..."
 cp "$DEPLOY_DIR/systemd/frameforge.service" /etc/systemd/system/frameforge.service
-cp "$DEPLOY_DIR/systemd/heartbeat.service"  /etc/systemd/system/heartbeat.service
-cp "$DEPLOY_DIR/systemd/heartbeat.timer"    /etc/systemd/system/heartbeat.timer
-cp "$DEPLOY_DIR/scripts/heartbeat.sh"       /usr/local/bin/frameforge-heartbeat.sh
+cp "$DEPLOY_DIR/systemd/heartbeat.service" /etc/systemd/system/heartbeat.service
+cp "$DEPLOY_DIR/systemd/heartbeat.timer" /etc/systemd/system/heartbeat.timer
+cp "$DEPLOY_DIR/scripts/heartbeat.sh" /usr/local/bin/frameforge-heartbeat.sh
 chmod +x /usr/local/bin/frameforge-heartbeat.sh
 
 if [ -f "$DEPLOY_DIR/systemd/mediamtx.service" ]; then
@@ -91,7 +90,7 @@ cp "$DEPLOY_DIR/metrics/prometheus.yml" /etc/prometheus/prometheus.yml
 echo "[6/7] Provisioning Grafana dashboard..."
 install -d /etc/grafana/provisioning/dashboards
 install -d /var/lib/grafana/dashboards
-cat > /etc/grafana/provisioning/dashboards/frameforge.yaml <<'EOF'
+cat >/etc/grafana/provisioning/dashboards/frameforge.yaml <<'EOF'
 apiVersion: 1
 providers:
   - name: frameforge
@@ -104,7 +103,7 @@ cp "$DEPLOY_DIR/metrics/grafana/per_box.json" /var/lib/grafana/dashboards/
 
 # Prometheus datasource (auto-provisioned)
 install -d /etc/grafana/provisioning/datasources
-cat > /etc/grafana/provisioning/datasources/prometheus.yaml <<'EOF'
+cat >/etc/grafana/provisioning/datasources/prometheus.yaml <<'EOF'
 apiVersion: 1
 datasources:
   - name: prometheus
@@ -117,7 +116,7 @@ EOF
 # Anonymous viewer access so dashboard deep-links open with no login.
 # Env drop-in (not grafana.ini) so an apt upgrade can't clobber it.
 install -d /etc/systemd/system/grafana-server.service.d
-cat > /etc/systemd/system/grafana-server.service.d/10-frameforge-anon.conf <<'EOF'
+cat >/etc/systemd/system/grafana-server.service.d/10-frameforge-anon.conf <<'EOF'
 [Service]
 Environment=GF_AUTH_ANONYMOUS_ENABLED=true
 Environment=GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
@@ -128,7 +127,7 @@ echo "[7/7] Enabling services..."
 systemctl daemon-reload
 systemctl enable --now prometheus.service
 systemctl enable --now grafana-server.service
-systemctl restart grafana-server.service   # apply the anonymous-access drop-in
+systemctl restart grafana-server.service # apply the anonymous-access drop-in
 [ -f /etc/systemd/system/mediamtx.service ] && systemctl enable --now mediamtx.service
 systemctl enable heartbeat.timer
 systemctl start heartbeat.timer
