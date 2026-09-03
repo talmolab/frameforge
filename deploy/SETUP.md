@@ -7,7 +7,7 @@ Two scripts handle the install. Both idempotent — safe to re-run.
 ## 0. Have credentials ready before starting
 
 - **Service user password** — you'll set it interactively during bootstrap-box.sh (used for SSH + sudo). User is `talmolab` unless you export `FF_USER` to both scripts.
-- **VAST_USER / VAST_PASS** — for SMB upload; needed before frameforge starts (install-frameforge.sh creates a stub, you edit)
+- **Storage credentials** — `SMB_USER` / `SMB_PASS` for an SMB share, or `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` for S3; needed before frameforge starts (install-frameforge.sh creates a stub, you edit)
 - **Hostname** — pick the rig's name (e.g., `lab-rig01`)
 - **Camera-facing NIC name** — find on the box: `ip link` (e.g., `enp1s0`)
 
@@ -28,7 +28,7 @@ Pick the tenant + edit cameras + edit secrets:
 
 ```bash
 sudo cp config/tenants/example.yaml /etc/frameforge/tenant.yaml
-sudoedit /etc/frameforge/tenant.yaml       # set real smb_server / smb_share / smb_root
+sudoedit /etc/frameforge/tenant.yaml       # set transfer.storage: kind smb (server/share/root) or s3 (bucket, optional prefix/endpoint_url/region)
 sudo cp config/cameras.example.yaml /etc/frameforge/cameras.yaml
 sudoedit /etc/frameforge/cameras.yaml      # set real serials
 ```
@@ -46,7 +46,7 @@ Does: git clone/pull, `uv sync --extra pylon` venv (pypylon is an optional extra
 Edit secrets before starting:
 
 ```bash
-sudoedit /etc/frameforge/secrets.env       # set real VAST_USER, VAST_PASS
+sudoedit /etc/frameforge/secrets.env       # set real SMB_USER, SMB_PASS (or AWS_* for s3)
 ```
 
 ## 4. Start
@@ -65,6 +65,7 @@ ssh talmolab@lab-rig01.local             # mDNS access from lab LAN
 Browser (lab LAN):
 - `http://lab-rig01.local:3000` — Grafana (default admin / admin)
 - `http://lab-rig01.local:8888` — mediamtx web UI, pick a cam to watch live
+- `<root>/_ff_heartbeat/<hostname>.json` on storage — heartbeat; point the fleet console at that folder
 
 ## Operations
 
@@ -78,7 +79,7 @@ sudo systemctl kill -s INT --kill-who=main frameforge   # hard drain: abort chun
 
 ## Re-runs / updates
 
-Code lives at `/usr/local/lib/frameforge` (FF_HOME). Re-running the installer resets it hard to `origin/$GIT_REF`; local edits there are discarded.
+Code lives at `/usr/local/lib/frameforge` (FF_HOME). Re-running the installer resets it hard to `origin/$GIT_REF`; local edits there are discarded. Tenants predating `transfer.storage`: stop frameforge, move `smb_*` under `transfer.storage` (`kind: smb` + `server/share/root`), rename `VAST_*` → `SMB_*` in secrets.env.
 
 ```bash
 # Update frameforge code only:

@@ -65,8 +65,8 @@ if [ ! -f /etc/frameforge/cameras.yaml ]; then
 fi
 if [ ! -f /etc/frameforge/secrets.env ]; then
     cat >/etc/frameforge/secrets.env <<'EOF'
-VAST_USER=changeme
-VAST_PASS=changeme
+SMB_USER=changeme
+SMB_PASS=changeme
 EOF
     chmod 600 /etc/frameforge/secrets.env
     echo "  Created /etc/frameforge/secrets.env (chmod 600). Edit with real creds:"
@@ -79,8 +79,6 @@ sed -e "s/^User=.*/User=$FF_USER/" -e "s/^Group=.*/Group=$FF_USER/" \
     "$DEPLOY_DIR/systemd/frameforge.service" >/etc/systemd/system/frameforge.service
 cp "$DEPLOY_DIR/systemd/heartbeat.service" /etc/systemd/system/heartbeat.service
 cp "$DEPLOY_DIR/systemd/heartbeat.timer" /etc/systemd/system/heartbeat.timer
-cp "$DEPLOY_DIR/scripts/heartbeat.sh" /usr/local/bin/frameforge-heartbeat.sh
-chmod +x /usr/local/bin/frameforge-heartbeat.sh
 
 if [ -f "$DEPLOY_DIR/systemd/mediamtx.service" ]; then
     cp "$DEPLOY_DIR/systemd/mediamtx.service" /etc/systemd/system/mediamtx.service
@@ -152,7 +150,7 @@ echo
 echo "=== install-frameforge.sh complete ==="
 echo "Verify:"
 echo "  systemctl status frameforge          # main service"
-echo "  systemctl status heartbeat.timer     # SMB heartbeat"
+echo "  systemctl status heartbeat.timer     # storage heartbeat"
 echo "  journalctl -u frameforge -f          # live tail"
 echo "  curl localhost:9100/metrics | head   # frameforge metrics exposed"
 echo "  open http://<host>:3000              # Grafana (default admin/admin)"

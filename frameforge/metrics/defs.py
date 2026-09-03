@@ -65,16 +65,16 @@ bcast_encode_duration_seconds = Histogram(
 
 # --- Transfer ------------------------------------------------------------
 transfer_session_alive = Gauge(
-    "transfer_session_alive", "1 when SMB session is registered, 0 when down",
+    "transfer_session_alive", "1 when the storage backend is open, 0 when down",
     multiprocess_mode="mostrecent")
 transfer_uploaded = Counter(
-    "transfer_uploaded", "Chunks successfully uploaded to VAST")
+    "transfer_uploaded", "Chunks successfully uploaded to storage")
 transfer_failures = Counter(
     "transfer_failures", "Per-attempt upload failures")
 transfer_discarded = Counter(
     "transfer_discarded",
     "Chunks deleted locally after exceeding max upload attempts "
-    "(SMB session was up between failures, so failure is file-specific)")
+    "(storage was up between failures, so failure is file-specific)")
 transfer_free_mb = Gauge(
     "transfer_free_mb", "Free space in scratch directory (MB)",
     multiprocess_mode="mostrecent")
@@ -83,7 +83,7 @@ transfer_low_disk = Gauge(
     multiprocess_mode="mostrecent")
 transfer_session_prefix = Gauge(
     "transfer_session_prefix",
-    "SMB destination prefix for this rig (info metric, value always 1)",
+    "Storage destination prefix for this rig (info metric, value always 1)",
     ["prefix"], multiprocess_mode="mostrecent")
 
 

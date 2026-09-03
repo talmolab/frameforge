@@ -3,10 +3,10 @@
 Three layers, applied in order (later overrides earlier):
   1. Code defaults (dataclass field defaults)
   2. Hardware spec (FF_HARDWARE env -> core.hardware lookup; sets broadcast)
-  3. Tenant YAML (/etc/frameforge/tenant.yaml; per-lab SMB dest + any overrides)
+  3. Tenant YAML (/etc/frameforge/tenant.yaml; storage destination + any overrides)
 
 Per-rig cameras list lives in /etc/frameforge/cameras.yaml (separate concern).
-Secrets (VAST_USER/VAST_PASS) live in env vars read by SmbSession.
+Storage credentials live in env vars read by the storage backend.
 """
 
 import os
@@ -17,6 +17,7 @@ import yaml
 from .core.hardware import get_hardware_spec
 from .core.paths import CAMERAS_FILE, TENANT_FILE
 from .sources import SOURCE_KINDS
+from .storage import STORAGE_KINDS
 
 
 @dataclass(slots=True)
@@ -47,10 +48,20 @@ class EncodeCfg:
 
 
 @dataclass(slots=True)
+class StorageCfg:
+    kind: str = ""
+    server: str = ""
+    share: str = ""
+    root: str = ""
+    bucket: str = ""
+    prefix: str = ""
+    endpoint_url: str = ""
+    region: str = ""
+
+
+@dataclass(slots=True)
 class TransferCfg:
-    smb_server: str = ""
-    smb_share: str = ""
-    smb_root: str = ""
+    storage: StorageCfg = field(default_factory=StorageCfg)
     low_disk_threshold_mb: int = 500
     analytics: bool = False
 
@@ -94,10 +105,17 @@ class Config:
         if self.acq.channels not in (1, 3):
             raise ValueError("config: acq.channels must be 1 or 3")
 
-        transfer = self.transfer
-        if not transfer.smb_server or not transfer.smb_share or not transfer.smb_root:
-            raise ValueError(
-                "config: tenant must specify smb_server, smb_share, smb_root")
+        validate_storage(self.transfer.storage)
+
+
+def validate_storage(storage: StorageCfg) -> None:
+    if storage.kind not in STORAGE_KINDS:
+        raise ValueError(
+            f"config: transfer.storage.kind {storage.kind!r} not in {STORAGE_KINDS}")
+    if storage.kind == "smb" and not (storage.server and storage.share and storage.root):
+        raise ValueError("config: transfer.storage smb needs server, share, root")
+    if storage.kind == "s3" and not storage.bucket:
+        raise ValueError("config: transfer.storage s3 needs bucket")
 
 
 _TOP_LEVEL_FIELDS = ("session_name", "session_postfix")
@@ -112,6 +130,13 @@ def _read_yaml(path: str) -> dict:
         return yaml.safe_load(raw_file) or {}
 
 
+def _read_tenant() -> dict:
+    if not os.path.isfile(TENANT_FILE):
+        raise ValueError(
+            f"config: tenant file not found at {TENANT_FILE}")
+    return _read_yaml(TENANT_FILE)
+
+
 def _load_cameras() -> list[CameraCfg]:
     if not os.path.isfile(CAMERAS_FILE):
         raise ValueError(
@@ -120,18 +145,8 @@ def _load_cameras() -> list[CameraCfg]:
     return [CameraCfg(**camera) for camera in raw_cameras]
 
 
-def load_config() -> Config:
-    hardware_name = _env("FF_HARDWARE")
-    if not hardware_name:
-        raise ValueError("config: set FF_HARDWARE=ms01")
+def _build(tenant: dict, cameras: list[CameraCfg], hardware_name: str) -> Config:
     spec = get_hardware_spec(hardware_name)
-
-    if not os.path.isfile(TENANT_FILE):
-        raise ValueError(
-            f"config: tenant file not found at {TENANT_FILE}")
-    tenant = _read_yaml(TENANT_FILE)
-
-    cameras = _load_cameras()
 
     broadcast_raw = {
         "enabled": spec.broadcast_enabled,
@@ -139,15 +154,33 @@ def load_config() -> Config:
     }
     broadcast_raw.update(tenant.get("broadcast", {}))
 
-    config = Config(
+    transfer_raw = dict(tenant.get("transfer", {}))
+    storage_raw = transfer_raw.pop("storage", {})
+
+    return Config(
         cameras=cameras,
         hardware=hardware_name,
         encode=EncodeCfg(**tenant.get("encode", {})),
         acq=AcqCfg(**tenant.get("acq", {})),
-        transfer=TransferCfg(**tenant.get("transfer", {})),
+        transfer=TransferCfg(storage=StorageCfg(**storage_raw), **transfer_raw),
         broadcast=BroadcastCfg(**broadcast_raw),
         **{k: tenant[k] for k in _TOP_LEVEL_FIELDS if k in tenant},
     )
 
+
+def load_config() -> Config:
+    hardware_name = _env("FF_HARDWARE")
+    if not hardware_name:
+        raise ValueError("config: set FF_HARDWARE=ms01")
+
+    config = _build(_read_tenant(), _load_cameras(), hardware_name)
     config.validate()
+    return config
+
+
+# Tenant-only view for tools that run outside the pipeline (heartbeat):
+# no cameras file, no FF_HARDWARE.
+def load_tenant_config() -> Config:
+    config = _build(_read_tenant(), [], "")
+    validate_storage(config.transfer.storage)
     return config

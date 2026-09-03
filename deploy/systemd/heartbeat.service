@@ -1,11 +1,13 @@
 [Unit]
-Description=Frameforge rig heartbeat (write IP to VAST)
+Description=frameforge rig heartbeat (publish IP to storage)
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=oneshot
-# Longer than the script's retry budget (HB_MAX_ATTEMPTS * HB_RETRY_SECONDS)
+# Longer than the retry budget (HB_MAX_ATTEMPTS * HB_RETRY_SECONDS)
 # so systemd doesn't kill the retry loop at the 90s default while the uplink settles.
 TimeoutStartSec=360
-ExecStart=/usr/local/bin/frameforge-heartbeat.sh
+EnvironmentFile=/etc/frameforge/secrets.env
+WorkingDirectory=/usr/local/lib/frameforge
+ExecStart=/usr/local/lib/frameforge/.venv/bin/python -m frameforge.heartbeat

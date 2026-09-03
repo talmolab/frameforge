@@ -12,7 +12,7 @@ and per-box plus fleet-wide monitoring.
 A supervisor process spawns per-camera workers connected by shared-memory rings:
 
 ```
-cameras → acquisition ─┬─ record ring ──── encoder ── hourly .mp4 chunks ── transfer → SMB / VAST
+cameras → acquisition ─┬─ record ring ──── encoder ── hourly .mp4 chunks ── transfer → storage (SMB / S3)
                        └─ broadcast ring ── broadcast ── mediamtx ────────── WebRTC (live view)
          all workers ─────────────────── metrics ── Prometheus ─────────── Grafana
 ```

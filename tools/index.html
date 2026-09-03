@@ -148,7 +148,7 @@ function renderLanding(){
   if (!state.boxes.length){
     app.innerHTML = header("") + (state.err ? `<div class="err">${esc(state.err)}</div>` : "") + `
       <div class="empty"><div class="big">🔨 📷</div>
-      <p>Point at the VAST <b>_ff_heartbeat</b> folder to load the fleet.</p>
+      <p>Point at the <b>_ff_heartbeat</b> folder inside your recordings root to load the fleet.</p>
       <button class="btn g" onclick="picker.click()">Choose heartbeat folder</button>
       <p class="note">Reads the beacon <code>*.json</code> locally — nothing is uploaded.
       ${LIVE ? "" : "<br>Live metrics &amp; the camera wall need an <b>http</b> page; on https this runs as a launcher."}</p>

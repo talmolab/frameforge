@@ -1,7 +1,8 @@
-"""SMB push worker: scan scratch, optionally analyze, upload to VAST, delete."""
+"""Upload worker: scan scratch, optionally analyze, push to storage, delete."""
 
 import logging
 import os
+import posixpath
 import random
 import subprocess
 import time
@@ -11,15 +12,16 @@ from ..context import Context
 from ..core.logging_setup import DEDUP_INTERVAL_S, DEDUP_KEY
 from ..core.paths import SCRATCH_DIR
 from ..encoding.chunk_scheduler import sidecar_for
-from ..encoding.smb_session import SmbSession
 from ..metrics.defs import (
     transfer_discarded,
     transfer_failures,
     transfer_free_mb,
     transfer_low_disk,
+    transfer_session_alive,
     transfer_session_prefix,
     transfer_uploaded,
 )
+from ..storage import make_storage
 
 _DRAIN_POLL_INTERVAL_S = 1.0
 _LOW_DISK_LOG_INTERVAL_S = 300.0
@@ -48,18 +50,11 @@ class Transfer:
         self.scratch_dir = SCRATCH_DIR
         self.logger = logging.getLogger("frameforge.transfer")
 
-        self.session = SmbSession(
-            server=self.transfer_config.smb_server,
-            share=self.transfer_config.smb_share,
-            root=self.transfer_config.smb_root,
-            scratch_dir=self.scratch_dir,
-        )
+        self.storage = make_storage(self.transfer_config.storage)
         self._uploads = UploadState()
 
     def run(self) -> None:
-        prefix = "//%s/%s/%s/%s" % (
-            self.transfer_config.smb_server, self.transfer_config.smb_share,
-            self.transfer_config.smb_root, self.context.session_name)
+        prefix = posixpath.join(self.storage.location, self.context.session_name)
         transfer_session_prefix.labels(prefix=prefix).set(1)
 
         self.logger.info(
@@ -67,14 +62,28 @@ class Transfer:
             prefix, self.transfer_config.analytics)
 
         while not self.context.hard_drain.is_set():
-            if self.session.ensure_open():
+            if self._ensure_open():
                 self._scan_and_upload()
             self._check_disk()
             self._sleep_with_drain(
                 _SCAN_INTERVAL_S + random.uniform(0, _SCAN_JITTER_S))
 
-        self.session.close()
+        self.storage.close()
+        transfer_session_alive.set(0)
         self.logger.info("transfer stopping")
+
+    def _ensure_open(self) -> bool:
+        is_open = self.storage.ensure_open()
+        transfer_session_alive.set(1 if is_open else 0)
+        return is_open
+
+    def _mark_dead(self) -> None:
+        self.storage.mark_dead()
+        transfer_session_alive.set(0)
+
+    def _put(self, local_path: str) -> None:
+        relative = os.path.relpath(local_path, self.scratch_dir)
+        self.storage.put(local_path, relative.replace(os.sep, "/"))
 
     def _scan_and_upload(self) -> None:
         for local_path in self._find_finalized_chunks():
@@ -93,7 +102,7 @@ class Transfer:
 
             if has_sidecar:
                 try:
-                    self.session.upload(sidecar_path)
+                    self._put(sidecar_path)
                 except Exception as sidecar_error:
                     self.logger.warning(
                         "sidecar upload failed path=%s err=%s (mp4 continues)",
@@ -103,7 +112,7 @@ class Transfer:
 
             attempts = self._uploads.attempt(local_path)
             try:
-                self.session.upload(local_path)
+                self._put(local_path)
             except Exception as upload_error:
                 transfer_failures.inc()
                 if attempts >= _MAX_UPLOAD_ATTEMPTS:
@@ -122,7 +131,7 @@ class Transfer:
                         "upload failed attempt=%d/%d path=%s err=%s",
                         attempts, _MAX_UPLOAD_ATTEMPTS, local_path, upload_error,
                         extra={DEDUP_KEY: ("upload_fail", local_path)})
-                self.session.mark_dead()
+                self._mark_dead()
                 return
 
             try:
