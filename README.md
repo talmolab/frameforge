@@ -37,7 +37,7 @@ cameras → acquisition ─┬─ record ring ──── encoder ── hourly
 See **[deploy/SETUP.md](deploy/SETUP.md)** — two idempotent scripts, then start the service:
 
 ```bash
-sudo FF_HOSTNAME=talmo-rig01 CAMERA_IFACE=enp1s0 ./deploy/scripts/bootstrap-box.sh   # OS
+sudo FF_HOSTNAME=lab-rig01 CAMERA_IFACE=enp1s0 ./deploy/scripts/bootstrap-box.sh     # OS
 sudo ./deploy/scripts/install-frameforge.sh                                          # app
 sudo systemctl start frameforge
 ```
@@ -55,3 +55,13 @@ sudo systemctl kill -s SIGINT frameforge      # hard drain: abort chunk now
 
 Dashboards: Grafana on `:3000`, per-box metrics on `:9100`, live camera view via mediamtx `:8889`.
 Fleet-wide view: serve the static console — `npx serve -p 8080 tools` → `http://localhost:8080` — then choose the beacon folder.
+
+## Issues & Support
+
+**Technical issue with the software?** Search the [issues on GitHub](https://github.com/talmolab/frameforge/issues) or open a new one.
+
+**General inquiries?** Reach out to [talmo@salk.edu](mailto:talmo@salk.edu).
+
+## License
+
+frameforge is released under an [MIT License](LICENSE). Camera access uses [pypylon](https://github.com/basler/pypylon), which is distributed by Basler under its own license and installed separately.

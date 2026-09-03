@@ -1,0 +1,7 @@
+transfer:
+  smb_server: storage.example.org
+  smb_share: lab
+  smb_root: recordings/frameforge
+
+encode:
+  chunk_seconds: 3600

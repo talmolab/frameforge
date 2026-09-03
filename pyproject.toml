@@ -2,7 +2,22 @@
 name = "frameforge"
 version = "0.1.0"
 description = "Multi-process camera acquisition pipeline for home-cage rodent monitoring"
+authors = [
+    {name = "Charles Dracos", email = "cdracos@salk.edu"},
+]
+license = {text = "MIT"}
+readme = "README.md"
 requires-python = ">=3.13"
+keywords = ["camera acquisition", "video recording", "behavioral monitoring", "neuroscience"]
+classifiers = [
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Natural Language :: English",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Multimedia :: Video :: Capture",
+]
 dependencies = [
     "pypylon",
     "smbprotocol",
@@ -12,11 +27,25 @@ dependencies = [
     "h5py",
 ]
 
+[project.urls]
+"Bug Tracker" = "https://github.com/talmolab/frameforge/issues"
+"Source Code" = "https://github.com/talmolab/frameforge"
+
 [project.optional-dependencies]
 dev = [
     "pytest",
     "ruff",
 ]
+tools = [
+    "opencv-python",
+]
 
 [tool.uv]
 python-preference = "only-managed"
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = ["E501"]

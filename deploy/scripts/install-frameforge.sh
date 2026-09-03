@@ -11,27 +11,34 @@
 # Env:
 #   GIT_REF — branch / tag / commit to deploy (default: main)
 #   FF_HOME — install location (default: /usr/local/lib/frameforge)
+#   FF_USER — service account that owns and runs frameforge (default: talmolab)
 
 set -euo pipefail
 
 GIT_REF="${GIT_REF:-main}"
 GIT_REMOTE="${GIT_REMOTE:-https://github.com/talmolab/frameforge.git}"
 FF_HOME="${FF_HOME:-/usr/local/lib/frameforge}"
+FF_USER="${FF_USER:-talmolab}"
 
 echo "=== install-frameforge.sh ==="
-echo "  install dir: $FF_HOME"
-echo "  git ref:     $GIT_REF"
+echo "  install dir:  $FF_HOME"
+echo "  git ref:      $GIT_REF"
+echo "  service user: $FF_USER"
 echo
 
 # ----- 1. Code: git clone or pull -----
 echo "[1/7] Syncing code to $FF_HOME..."
 if [ ! -d "$FF_HOME/.git" ]; then
-    sudo -u talmolab git clone "$GIT_REMOTE" "$FF_HOME"
+    sudo -u "$FF_USER" git clone "$GIT_REMOTE" "$FF_HOME"
 fi
 cd "$FF_HOME"
-sudo -u talmolab git fetch --all --tags
-sudo -u talmolab git checkout "$GIT_REF"
-sudo -u talmolab git pull --ff-only origin "$GIT_REF"
+sudo -u "$FF_USER" git fetch -q --all --tags --prune
+sudo -u "$FF_USER" git reset -q --hard
+if sudo -u "$FF_USER" git rev-parse -q --verify "origin/$GIT_REF" >/dev/null; then
+    sudo -u "$FF_USER" git checkout -q -B "$GIT_REF" "origin/$GIT_REF"
+else
+    sudo -u "$FF_USER" git checkout -q --detach "$GIT_REF"
+fi
 
 DEPLOY_DIR="$FF_HOME/deploy"
 
@@ -40,7 +47,7 @@ DEPLOY_DIR="$FF_HOME/deploy"
 # interpreter under ~/.local/share/uv/python/. System Python is never linked
 # — apt/needrestart can never trigger a frameforge restart from below.
 echo "[2/7] Syncing venv via uv..."
-sudo -u talmolab -H bash -lc "cd '$FF_HOME' && uv sync"
+sudo -u "$FF_USER" -H bash -lc "cd '$FF_HOME' && uv sync"
 
 # ----- 3. Frameforge runtime config (skip if present) -----
 echo "[3/7] Frameforge runtime config..."
@@ -48,7 +55,7 @@ if [ ! -f /etc/frameforge/tenant.yaml ]; then
     echo "  /etc/frameforge/tenant.yaml not present."
     echo "  Pick a tenant from $FF_HOME/config/tenants/ and copy it:"
     ls "$FF_HOME/config/tenants/"
-    echo "  e.g.: sudo cp $FF_HOME/config/tenants/charlie.yaml /etc/frameforge/tenant.yaml"
+    echo "  e.g.: sudo cp $FF_HOME/config/tenants/example.yaml /etc/frameforge/tenant.yaml"
 fi
 if [ ! -f /etc/frameforge/cameras.yaml ]; then
     echo "  /etc/frameforge/cameras.yaml not present."
@@ -68,7 +75,8 @@ fi
 
 # ----- 4. Systemd units -----
 echo "[4/7] Installing systemd units..."
-cp "$DEPLOY_DIR/systemd/frameforge.service" /etc/systemd/system/frameforge.service
+sed -e "s/^User=.*/User=$FF_USER/" -e "s/^Group=.*/Group=$FF_USER/" \
+    "$DEPLOY_DIR/systemd/frameforge.service" >/etc/systemd/system/frameforge.service
 cp "$DEPLOY_DIR/systemd/heartbeat.service" /etc/systemd/system/heartbeat.service
 cp "$DEPLOY_DIR/systemd/heartbeat.timer" /etc/systemd/system/heartbeat.timer
 cp "$DEPLOY_DIR/scripts/heartbeat.sh" /usr/local/bin/frameforge-heartbeat.sh

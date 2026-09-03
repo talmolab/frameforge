@@ -148,7 +148,7 @@ class Supervisor:
             time.sleep(1.0)
 
         self._shutdown()
-        
+
     def _install_signals(self) -> None:
         def soft_handler(signum, _frame):
             logger.info("signal %s received soft drain wait for chunk boundary",

@@ -6,11 +6,12 @@
 # frameforge itself; that's install-frameforge.sh.
 #
 # Usage (run as root):
-#   sudo FF_HOSTNAME=talmo-rig01 CAMERA_IFACE=enp1s0 ./bootstrap-box.sh [--with-broadcast]
+#   sudo FF_HOSTNAME=lab-rig01 CAMERA_IFACE=enp1s0 ./bootstrap-box.sh [--with-broadcast]
 #
 # Env:
 #   FF_HOSTNAME    — rig hostname to set (required; not HOSTNAME, which bash presets)
 #   CAMERA_IFACE   — camera-facing NIC name (required, find via `ip link`)
+#   FF_USER        — service account that owns and runs frameforge (default: talmolab)
 #   WITH_BROADCAST — "true" if --with-broadcast flag passed
 
 set -euo pipefail
@@ -26,8 +27,9 @@ for arg in "$@"; do
     esac
 done
 
-: "${FF_HOSTNAME:?FF_HOSTNAME env var required (e.g. talmo-rig01)}"
+: "${FF_HOSTNAME:?FF_HOSTNAME env var required (e.g. lab-rig01)}"
 : "${CAMERA_IFACE:?CAMERA_IFACE env var required (e.g. enp1s0; check 'ip link')}"
+FF_USER="${FF_USER:-talmolab}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -35,6 +37,7 @@ DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 echo "=== bootstrap-box.sh ==="
 echo "  hostname:       $FF_HOSTNAME"
 echo "  camera iface:   $CAMERA_IFACE"
+echo "  service user:   $FF_USER"
 echo "  with broadcast: $WITH_BROADCAST"
 echo
 
@@ -109,19 +112,19 @@ cat >/etc/needrestart/conf.d/frameforge.conf <<'EOF'
 $nrconf{override_rc}{qr(^frameforge\.service$)} = 0;
 EOF
 
-# ----- 5. talmolab user + groups -----
-echo "[5/10] Creating talmolab user..."
-if ! id -u talmolab >/dev/null 2>&1; then
-    useradd -m -s /bin/bash talmolab
-    echo "  Set password for talmolab:"
-    passwd talmolab
+# ----- 5. Service user + groups -----
+echo "[5/10] Creating $FF_USER user..."
+if ! id -u "$FF_USER" >/dev/null 2>&1; then
+    useradd -m -s /bin/bash "$FF_USER"
+    echo "  Set password for $FF_USER:"
+    passwd "$FF_USER"
 fi
-usermod -aG sudo,video,render talmolab
+usermod -aG sudo,video,render "$FF_USER"
 
-# ----- 6. System dirs (owned by talmolab) -----
+# ----- 6. System dirs (owned by service user) -----
 echo "[6/10] Creating system dirs..."
-install -d -m 755 -o talmolab -g talmolab /usr/local/lib/frameforge
-install -d -m 755 -o talmolab -g talmolab /var/lib/frameforge/scratch
+install -d -m 755 -o "$FF_USER" -g "$FF_USER" /usr/local/lib/frameforge
+install -d -m 755 -o "$FF_USER" -g "$FF_USER" /var/lib/frameforge/scratch
 install -d -m 755 -o root -g root /etc/frameforge
 
 # ----- 7. System drop-ins (kernel + journald) -----
@@ -153,7 +156,7 @@ netplan apply
 # ----- 9. uv (Python package manager) -----
 echo "[9/10] Installing uv..."
 if ! command -v uv >/dev/null; then
-    curl -LsSf https://astral.sh/uv/install.sh | sudo -u talmolab sh
+    curl -LsSf https://astral.sh/uv/install.sh | sudo -u "$FF_USER" sh
 fi
 
 # ----- 10. Headless boot (no GUI/login) -----
