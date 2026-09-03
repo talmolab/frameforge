@@ -28,7 +28,7 @@ class HardwareSpec:
     pin_function: PinFn
 
 
-def _no_pin(worker_name: str, cam_index: int) -> set[int] | None:
+def no_pin(worker_name: str, cam_index: int) -> set[int] | None:
     return None
 
 
@@ -73,7 +73,7 @@ _GENERIC_SPEC = HardwareSpec(
     broadcast_enabled=False,
     broadcast_bitrate_mbps=1.0,
     broadcast_codec_args=(),
-    pin_function=_no_pin,
+    pin_function=no_pin,
 )
 
 _SPECS: dict[str, HardwareSpec] = {

@@ -4,29 +4,16 @@ import logging
 import queue
 import time
 
-from ..config import Config
 from ..context import Context
-from ..core.hardware import get_hardware_spec
-from ..encoding.encoder_backends import FfmpegBackend, MediaBackend
-from ..metrics.defs import bcast_encode_duration_seconds, broadcast_enabled
 from ..core.shm_ring import FrameRing
+from ..encoding.ffmpeg import make_broadcast_backend
+from ..metrics.defs import bcast_encode_duration_seconds, broadcast_enabled
 
 _BROADCAST_FPS = 10
 _OPEN_MAX_ATTEMPTS = 5
 _OPEN_BACKOFF_S = 2.0
 _RTSP_HOST = "127.0.0.1"
 _RTSP_PORT = 8554
-
-
-def make_broadcast_backend(config: Config) -> MediaBackend:
-    spec = get_hardware_spec(config.hardware)
-    bitrate_bps = str(int(config.broadcast.bitrate_mbps * 1_000_000))
-    return FfmpegBackend(
-        codec_args=[*spec.broadcast_codec_args, "-b:v", bitrate_bps],
-        output_format="rtsp",
-        extra_output_args=("-rtsp_transport", "tcp"),
-        capture_stderr=False,
-    )
 
 
 class Broadcast:
@@ -71,7 +58,7 @@ class Broadcast:
             if self.context.hard_drain.is_set():
                 return None
             try:
-                backend = make_broadcast_backend(self.context.config)
+                backend = make_broadcast_backend(self.context.config.broadcast)
                 backend.open(
                     mount_uri,
                     width=self.context.config.acq.width,

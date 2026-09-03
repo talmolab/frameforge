@@ -16,7 +16,6 @@ import time
 
 from prometheus_client import multiprocess
 
-from .hardware import get_hardware_spec
 from .shm_ring import FrameRing
 from ..config import Config
 from ..context import Context
@@ -33,6 +32,7 @@ logger = logging.getLogger("frameforge.supervisor")
 
 _BACKOFF_CAP_SECONDS = 30
 _DRAIN_JOIN_SLACK_SECONDS = 100
+_RING_SLOTS = 128
 _BROADCAST_RING_SLOTS = 24
 _FINAL_JOIN_SECONDS = 30
 
@@ -42,8 +42,7 @@ class Supervisor:
         self.config = config
         self._manager = multiprocessing.Manager()
 
-        session_name = config.session_name or (
-            datetime.datetime.now().strftime("%Y-%m-%d") + config.session_postfix)
+        session_name = config.session_name or datetime.datetime.now().strftime("%Y-%m-%d")
 
         self.context = Context(
             config=config,
@@ -61,12 +60,12 @@ class Supervisor:
         config = self.config
         broadcast_enabled = config.broadcast.enabled
         acq = config.acq
-        pin_for = get_hardware_spec(config.hardware).pin_function
+        pin_for = config.pin_function
 
         for cam_index, camera in enumerate(config.cameras):
             frame_ring = FrameRing(
-                acq.ring_slots, acq.height, acq.width, acq.channels)
-            data_queue = multiprocessing.Queue(maxsize=acq.ring_slots * 2)
+                _RING_SLOTS, acq.height, acq.width, acq.channels)
+            data_queue = multiprocessing.Queue(maxsize=_RING_SLOTS * 2)
             self._frame_rings.append(frame_ring)
 
             broadcast_ring = None

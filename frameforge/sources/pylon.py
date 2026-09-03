@@ -6,9 +6,9 @@ import time
 
 from pypylon import genicam, pylon
 
-from ..config import CameraCfg, Config
+from ..config import AcqCfg
 from ..core.logging_setup import DEDUP_KEY
-from .base import Frame, SourceDisconnect
+from . import Frame, SourceDisconnect
 
 _GIGE_DEVICE_CLASS = "BaslerGigE"
 _GIGE_IP_OFFSET = 100
@@ -26,11 +26,15 @@ _DEFAULT_GAIN = 0.0
 
 
 class PylonSource:
-    def __init__(self, camera_config: CameraCfg, full_config: Config, *,
+    def __init__(self, camera_id: str, acq: AcqCfg, fps: float, *,
+                 serial: str = "", pfs: str = "",
                  ip_override: str | None = None,
                  latest_only: bool = False) -> None:
-        self.camera_config = camera_config
-        self.config = full_config
+        self.camera_id = camera_id
+        self.acq = acq
+        self.fps = fps
+        self.serial = serial
+        self.pfs = pfs
         self.ip_override = ip_override
         self.latest_only = latest_only
         self.logger = logging.getLogger("frameforge.pylon")
@@ -41,11 +45,11 @@ class PylonSource:
 
     def open(self) -> None:
         tl_factory = pylon.TlFactory.GetInstance()
-        if self.camera_config.serial:
-            if self._is_gige(tl_factory, self.camera_config.serial):
+        if self.serial:
+            if self._is_gige(tl_factory):
                 self._assign_ip(tl_factory)
             device_info = pylon.DeviceInfo()
-            device_info.SetSerialNumber(self.camera_config.serial)
+            device_info.SetSerialNumber(self.serial)
             pylon_camera = pylon.InstantCamera(
                 tl_factory.CreateDevice(device_info))
         else:
@@ -55,11 +59,10 @@ class PylonSource:
             pylon_camera.Open()
             self.pylon_camera = pylon_camera
 
-            if self.camera_config.pfs and os.path.isfile(self.camera_config.pfs):
+            if self.pfs and os.path.isfile(self.pfs):
                 pylon.FeaturePersistence.Load(
-                    self.camera_config.pfs, pylon_camera.GetNodeMap(), True)
-                self.logger.info("cam=%s applied .pfs %s",
-                                 self.camera_config.id, self.camera_config.pfs)
+                    self.pfs, pylon_camera.GetNodeMap(), True)
+                self.logger.info("cam=%s applied .pfs %s", self.camera_id, self.pfs)
             else:
                 self._apply_defaults(pylon_camera)
 
@@ -77,7 +80,7 @@ class PylonSource:
 
         self.logger.info(
             "cam=%s open serial=%s class=%s retrieve_ms=%d",
-            self.camera_config.id,
+            self.camera_id,
             pylon_camera.GetDeviceInfo().GetSerialNumber(),
             pylon_camera.GetDeviceInfo().GetDeviceClass(),
             self.retrieve_timeout_ms,
@@ -95,9 +98,9 @@ class PylonSource:
         if not result.GrabSucceeded():
             self.logger.warning(
                 "incomplete frames cam=%s code=%s msg=%s",
-                self.camera_config.id, result.GetErrorCode(),
+                self.camera_id, result.GetErrorCode(),
                 result.GetErrorDescription(),
-                extra={DEDUP_KEY: ("acq_incomplete", self.camera_config.id)})
+                extra={DEDUP_KEY: ("acq_incomplete", self.camera_id)})
             return None
 
         return Frame(result.GetArray(), time.time_ns(), result.GetBlockID())
@@ -125,39 +128,38 @@ class PylonSource:
             pass
         self._pending_result = None
 
-    def _is_gige(self, tl_factory, serial) -> bool:
+    def _is_gige(self, tl_factory) -> bool:
         for device in tl_factory.EnumerateDevices():
-            if device.GetSerialNumber() == serial:
+            if device.GetSerialNumber() == self.serial:
                 return device.GetDeviceClass() == _GIGE_DEVICE_CLASS
         return True
 
     def _assign_ip(self, tl_factory) -> None:
-        cfg = self.camera_config
         if self.ip_override:
             desired_ip = self.ip_override
         else:
-            cam_number = _cam_number(cfg.id)
+            cam_number = _cam_number(self.camera_id)
             if cam_number is None:
                 self.logger.warning(
-                    "cam=%s id has no trailing number; skip IP assign", cfg.id)
+                    "cam=%s id has no trailing number; skip IP assign", self.camera_id)
                 return
-            desired_ip = f"{self.config.acq.gige_subnet}.{_GIGE_IP_OFFSET + cam_number}"
+            desired_ip = f"{self.acq.gige_subnet}.{_GIGE_IP_OFFSET + cam_number}"
 
         try:
             gige_tl = tl_factory.CreateTl(_GIGE_DEVICE_CLASS)
         except Exception as error:
             self.logger.warning(
-                "cam=%s GigE TL unavailable err=%s", cfg.id, error)
+                "cam=%s GigE TL unavailable err=%s", self.camera_id, error)
             return
 
-        mac, current_ip = self._find_on_subnet(gige_tl, cfg.serial)
+        mac, current_ip = self._find_on_subnet(gige_tl)
         if mac is None:
             self.logger.warning(
-                "cam=%s serial=%s not found on GigE subnet", cfg.id, cfg.serial)
+                "cam=%s serial=%s not found on GigE subnet", self.camera_id, self.serial)
             return
         if current_ip == desired_ip:
             self.logger.debug(
-                "cam=%s already at %s; skip ForceIp", cfg.id, desired_ip)
+                "cam=%s already at %s; skip ForceIp", self.camera_id, desired_ip)
             return
 
         try:
@@ -165,46 +167,45 @@ class PylonSource:
         except Exception as error:
             self.logger.warning(
                 "ForceIp failed cam=%s serial=%s ip=%s err=%s",
-                cfg.id, cfg.serial, desired_ip, error)
+                self.camera_id, self.serial, desired_ip, error)
             return
 
         self.logger.info(
             "ForceIp cam=%s serial=%s mac=%s %s->%s",
-            cfg.id, cfg.serial, mac, current_ip, desired_ip)
+            self.camera_id, self.serial, mac, current_ip, desired_ip)
 
-        if not self._wait_for_ip(gige_tl, cfg.serial, desired_ip):
+        if not self._wait_for_ip(gige_tl, desired_ip):
             self.logger.warning(
                 "cam=%s not at %s within %.0fs after ForceIp "
                 "(continuing; open retries)",
-                cfg.id, desired_ip, _FORCEIP_SETTLE_TIMEOUT_S)
+                self.camera_id, desired_ip, _FORCEIP_SETTLE_TIMEOUT_S)
 
-    def _find_on_subnet(self, gige_tl, serial):
+    def _find_on_subnet(self, gige_tl):
         for device in gige_tl.EnumerateDevices():
-            if device.GetSerialNumber() == serial:
+            if device.GetSerialNumber() == self.serial:
                 return device.GetMacAddress(), device.GetIpAddress()
         return None, None
 
-    def _wait_for_ip(self, gige_tl, serial, desired_ip) -> bool:
+    def _wait_for_ip(self, gige_tl, desired_ip) -> bool:
         deadline = time.monotonic() + _FORCEIP_SETTLE_TIMEOUT_S
         while time.monotonic() < deadline:
-            _, current_ip = self._find_on_subnet(gige_tl, serial)
+            _, current_ip = self._find_on_subnet(gige_tl)
             if current_ip == desired_ip:
                 return True
             time.sleep(_FORCEIP_POLL_INTERVAL_S)
         return False
 
     def _apply_defaults(self, pylon_camera) -> None:
-        acq = self.config.acq
         _try_set(pylon_camera, "PixelFormat",
-                 "Mono8" if acq.channels == 1 else "RGB8")
-        _try_set(pylon_camera, "Width",  acq.width)
-        _try_set(pylon_camera, "Height", acq.height)
+                 "Mono8" if self.acq.channels == 1 else "RGB8")
+        _try_set(pylon_camera, "Width",  self.acq.width)
+        _try_set(pylon_camera, "Height", self.acq.height)
         try:
             pylon_camera.AcquisitionFrameRateEnable.SetValue(True)
         except Exception:
             pass
-        if not _try_set(pylon_camera, "AcquisitionFrameRateAbs", self.config.encode.fps):
-            _try_set(pylon_camera, "AcquisitionFrameRate", self.config.encode.fps)
+        if not _try_set(pylon_camera, "AcquisitionFrameRateAbs", self.fps):
+            _try_set(pylon_camera, "AcquisitionFrameRate", self.fps)
 
         _try_set(pylon_camera, "ExposureAuto", "Off")
         _try_set(pylon_camera, "GainAuto", "Off")
@@ -214,7 +215,7 @@ class PylonSource:
             _try_set(pylon_camera, "Gain", _DEFAULT_GAIN)
 
     def _apply_gige_tuning(self, pylon_camera) -> None:
-        packet_size = _PACKET_SIZE_JUMBO if self.config.acq.jumbo_frames else _PACKET_SIZE_STANDARD
+        packet_size = _PACKET_SIZE_JUMBO if self.acq.jumbo_frames else _PACKET_SIZE_STANDARD
         _try_set(pylon_camera, "GevSCPSPacketSize", packet_size)
         _try_set(pylon_camera, "GevSCPD",           _INTER_PACKET_DELAY_NS)
         try:

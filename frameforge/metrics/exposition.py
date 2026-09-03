@@ -25,7 +25,6 @@ _BUILD_INFO = "frameforge_build_info"
 _UPTIME_SECONDS = "frameforge_uptime_seconds"
 
 _METRICS_PORT = 9100
-_DRAIN_POLL_INTERVAL_S = 1.0
 
 
 class Metrics:
@@ -45,8 +44,7 @@ class Metrics:
             "metrics exporter listening on :%d/metrics (multi-process)",
             _METRICS_PORT)
 
-        while not self.context.hard_drain.is_set():
-            time.sleep(_DRAIN_POLL_INTERVAL_S)
+        self.context.hard_drain.wait()
 
         self.logger.info("metrics exporter stopping")
 

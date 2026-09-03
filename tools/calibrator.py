@@ -102,8 +102,8 @@ def _grab_frame(source):
 
 def main(serial_number, test_ip):
     config = load_config()
-    camera_config = CameraCfg(id="calib", kind="pylon", serial=serial_number)
-    source = make_source(camera_config, config,
+    camera_config = CameraCfg(id="calib", options={"serial": serial_number})
+    source = make_source(camera_config, config.acq, config.encode.fps,
                          ip_override=test_ip, latest_only=True)
     source.open()
 

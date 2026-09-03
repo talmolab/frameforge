@@ -1,32 +1,22 @@
-"""Media backends: shared ABC + ffmpeg subprocess for both recording and broadcast."""
+"""ffmpeg subprocess writer + the argument sets for recording and broadcast."""
 
-import abc
 import os
 import subprocess
 
-from ..config import Config
+from ..config import BroadcastCfg
+
+_INPUT_PIX_FMT = {1: "gray", 3: "rgb24"}
+
+_RECORD_PRESET = "superfast"
+_RECORD_CRF = 21
+_RECORD_GOP = 250
 
 
 class WriterDied(RuntimeError):
     pass
 
 
-_INPUT_PIX_FMT = {1: "gray", 3: "rgb24"}
-
-
-class MediaBackend(abc.ABC):
-    @abc.abstractmethod
-    def open(self, target: str, *, width: int, height: int, fps: float,
-             channels: int = 1) -> None: ...
-
-    @abc.abstractmethod
-    def write(self, frame, ts_ns: int | None = None) -> bool: ...
-
-    @abc.abstractmethod
-    def close(self) -> None: ...
-
-
-class FfmpegBackend(MediaBackend):
+class FfmpegBackend:
     _CLOSE_TIMEOUT_S = 30.0
 
     def __init__(self, *, codec_args, output_format=None,
@@ -115,17 +105,26 @@ class FfmpegBackend(MediaBackend):
             self._stderr_path = None
 
 
-def make_encoder_backend(config: Config) -> MediaBackend:
-    encode = config.encode
+def make_encoder_backend() -> FfmpegBackend:
     return FfmpegBackend(
         codec_args=[
             "-c:v", "libx264",
-            "-preset", encode.preset,
-            "-crf", str(encode.crf),
+            "-preset", _RECORD_PRESET,
+            "-crf", str(_RECORD_CRF),
             "-pix_fmt", "yuv420p",
-            "-g", str(encode.gop),
+            "-g", str(_RECORD_GOP),
             "-bf", "0",
             "-movflags", "+faststart",
         ],
         output_format="mp4",
+    )
+
+
+def make_broadcast_backend(broadcast: BroadcastCfg) -> FfmpegBackend:
+    bitrate_bps = str(int(broadcast.bitrate_mbps * 1_000_000))
+    return FfmpegBackend(
+        codec_args=[*broadcast.codec_args, "-b:v", bitrate_bps],
+        output_format="rtsp",
+        extra_output_args=("-rtsp_transport", "tcp"),
+        capture_stderr=False,
     )

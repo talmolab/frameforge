@@ -5,7 +5,6 @@ import os
 import posixpath
 import random
 import subprocess
-import time
 from dataclasses import dataclass, field
 
 from ..context import Context
@@ -23,7 +22,7 @@ from ..metrics.defs import (
 )
 from ..storage import make_storage
 
-_DRAIN_POLL_INTERVAL_S = 1.0
+_LOW_DISK_THRESHOLD_MB = 500
 _LOW_DISK_LOG_INTERVAL_S = 300.0
 _FFPROBE_TIMEOUT_S = 10.0
 _MAX_UPLOAD_ATTEMPTS = 30
@@ -65,7 +64,7 @@ class Transfer:
             if self._ensure_open():
                 self._scan_and_upload()
             self._check_disk()
-            self._sleep_with_drain(
+            self.context.hard_drain.wait(
                 _SCAN_INTERVAL_S + random.uniform(0, _SCAN_JITTER_S))
 
         self.storage.close()
@@ -198,23 +197,14 @@ class Transfer:
             return
 
         free_mb = (disk_stat.f_bavail * disk_stat.f_frsize) // (1024 * 1024)
-        threshold_mb = self.transfer_config.low_disk_threshold_mb
         transfer_free_mb.set(free_mb)
 
-        if free_mb < threshold_mb:
+        if free_mb < _LOW_DISK_THRESHOLD_MB:
             self.logger.error(
                 "LOW DISK free_mb=%d threshold_mb=%d path=%s",
-                free_mb, threshold_mb, self.scratch_dir,
+                free_mb, _LOW_DISK_THRESHOLD_MB, self.scratch_dir,
                 extra={DEDUP_KEY: "transfer_low_disk",
                        DEDUP_INTERVAL_S: _LOW_DISK_LOG_INTERVAL_S})
             transfer_low_disk.set(1)
         else:
             transfer_low_disk.set(0)
-
-    def _sleep_with_drain(self, seconds):
-        deadline = time.monotonic() + seconds
-        while not self.context.hard_drain.is_set():
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                return
-            time.sleep(min(remaining, _DRAIN_POLL_INTERVAL_S))

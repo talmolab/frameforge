@@ -40,7 +40,7 @@ class HostSampler:
         while not self.context.hard_drain.is_set():
             self._sample_all()
             self._sample_host()
-            self._sleep_with_drain(_SAMPLE_INTERVAL_S)
+            self.context.hard_drain.wait(_SAMPLE_INTERVAL_S)
         self.logger.info("host sampler stopping")
 
     def _sample_all(self):
@@ -91,14 +91,6 @@ class HostSampler:
                     host_cpu_busy_ratio.set(
                         round(max(0.0, min(1.0, d_busy / d_total)), 4))
             self._prev_cpu_ticks = cpu_ticks
-
-    def _sleep_with_drain(self, seconds):
-        deadline = time.monotonic() + seconds
-        while not self.context.hard_drain.is_set():
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                return
-            time.sleep(min(remaining, 0.5))
 
 
 def _child_pids(pid):

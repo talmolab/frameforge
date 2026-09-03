@@ -19,8 +19,7 @@ from ..metrics.defs import (
     acq_missed_frames,
     acq_overrun_drops,
 )
-from ..sources import make_source
-from ..sources.base import SourceDisconnect
+from ..sources import SourceDisconnect, make_source
 
 _SLOT_ACQUIRE_TIMEOUT_S = 1.0
 _RECONNECT_INTERVAL_S = 1.0
@@ -41,7 +40,8 @@ class Acquisition:
         self.broadcast_queue = broadcast_queue
         self.logger = logging.getLogger("frameforge.acquisition")
 
-        self.source = make_source(camera_config, context.config)
+        self.source = make_source(
+            camera_config, context.config.acq, context.config.encode.fps)
 
     def run(self) -> None:
         camera_id = self.camera_config.id
