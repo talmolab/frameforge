@@ -10,8 +10,8 @@ from dataclasses import dataclass, field
 from ..context import Context
 from ..core.logging_setup import DEDUP_INTERVAL_S, DEDUP_KEY
 from ..core.paths import SCRATCH_DIR
-from ..media.chunk_scheduler import sidecar_for
-from ..media.smb_session import SmbSession
+from ..encoding.chunk_scheduler import sidecar_for
+from ..encoding.smb_session import SmbSession
 from ..metrics.defs import (
     transfer_discarded,
     transfer_failures,

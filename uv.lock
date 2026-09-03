@@ -114,7 +114,6 @@ dependencies = [
     { name = "h5py" },
     { name = "numpy" },
     { name = "prometheus-client" },
-    { name = "pypylon" },
     { name = "pyyaml" },
     { name = "smbprotocol" },
 ]
@@ -123,6 +122,9 @@ dependencies = [
 dev = [
     { name = "pytest" },
     { name = "ruff" },
+]
+pylon = [
+    { name = "pypylon" },
 ]
 tools = [
     { name = "opencv-python" },
@@ -134,13 +136,13 @@ requires-dist = [
     { name = "numpy" },
     { name = "opencv-python", marker = "extra == 'tools'" },
     { name = "prometheus-client" },
-    { name = "pypylon" },
+    { name = "pypylon", marker = "extra == 'pylon'" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "pyyaml" },
     { name = "ruff", marker = "extra == 'dev'" },
     { name = "smbprotocol" },
 ]
-provides-extras = ["dev", "tools"]
+provides-extras = ["pylon", "dev", "tools"]
 
 [[package]]
 name = "h5py"

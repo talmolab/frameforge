@@ -47,7 +47,7 @@ DEPLOY_DIR="$FF_HOME/deploy"
 # interpreter under ~/.local/share/uv/python/. System Python is never linked
 # — apt/needrestart can never trigger a frameforge restart from below.
 echo "[2/7] Syncing venv via uv..."
-sudo -u "$FF_USER" -H bash -lc "cd '$FF_HOME' && uv sync"
+sudo -u "$FF_USER" -H bash -lc "cd '$FF_HOME' && uv sync --extra pylon"
 
 # ----- 3. Frameforge runtime config (skip if present) -----
 echo "[3/7] Frameforge runtime config..."

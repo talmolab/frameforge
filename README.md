@@ -27,7 +27,7 @@ cameras → acquisition ─┬─ record ring ──── encoder ── hourly
 
 | Path | What |
 |---|---|
-| `frameforge/` | the pipeline package — `core/` (supervisor, hardware, rings), `media/` (camera, encoder), `workers/`, `metrics/` |
+| `frameforge/` | the pipeline package — `core/` (supervisor, hardware, rings), `sources/` (camera backends), `encoding/` (encoder, chunking, transfer session), `workers/`, `metrics/` |
 | `deploy/` | box provisioning — `scripts/` (bootstrap + install), `systemd/`, `system/`, `metrics/` (Prometheus + Grafana), `SETUP.md` |
 | `tools/` | operator tools — `calibrator.py` (live lens tuning), `index.html` (static fleet console) |
 | `config/` | `cameras.example.yaml`, per-lab `tenants/` |

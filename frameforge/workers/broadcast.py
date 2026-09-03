@@ -6,7 +6,7 @@ import time
 
 from ..config import Config
 from ..context import Context
-from ..media.encoder_backends import FfmpegBackend, MediaBackend
+from ..encoding.encoder_backends import FfmpegBackend, MediaBackend
 from ..metrics.defs import bcast_encode_duration_seconds, broadcast_enabled
 from ..core.shm_ring import FrameRing
 

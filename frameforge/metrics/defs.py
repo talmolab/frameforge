@@ -22,7 +22,7 @@ acq_overrun_drops = Counter(
     ["cam"])
 acq_missed_frames = Counter(
     "acq_missed_frames",
-    "Frames the camera sent that never reached the acq loop (BlockID gap)",
+    "Frames the camera sent that never reached the acq loop (sequence gap)",
     ["cam"])
 acq_loop_duration_seconds = Histogram(
     "acq_loop_duration_seconds", "Per-iteration acquisition grab-loop wall time",
@@ -34,7 +34,7 @@ acq_enc_ring_free = Gauge(
     "acq_enc_ring_free", "Free slots remaining in the shared acq+enc frame ring",
     ["cam"], multiprocess_mode="livesum")
 acq_camera_alive = Gauge(
-    "acq_camera_alive", "1 when pylon camera is open, 0 when disconnected",
+    "acq_camera_alive", "1 when the camera source is open, 0 when disconnected",
     ["cam"], multiprocess_mode="livesum")
 
 

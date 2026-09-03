@@ -19,7 +19,6 @@ classifiers = [
     "Topic :: Multimedia :: Video :: Capture",
 ]
 dependencies = [
-    "pypylon",
     "smbprotocol",
     "prometheus-client",
     "pyyaml",
@@ -32,6 +31,9 @@ dependencies = [
 "Source Code" = "https://github.com/talmolab/frameforge"
 
 [project.optional-dependencies]
+pylon = [
+    "pypylon",
+]
 dev = [
     "pytest",
     "ruff",

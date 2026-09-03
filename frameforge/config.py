@@ -16,11 +16,13 @@ import yaml
 
 from .core.hardware import get_hardware_spec
 from .core.paths import CAMERAS_FILE, TENANT_FILE
+from .sources import SOURCE_KINDS
 
 
 @dataclass(slots=True)
 class CameraCfg:
     id: str
+    kind: str = "pylon"
     serial: str = ""
     pfs: str = ""
 
@@ -32,6 +34,7 @@ class AcqCfg:
     channels: int = 1
     ring_slots: int = 128
     jumbo_frames: bool = False
+    gige_subnet: str = "192.168.10"
 
 
 @dataclass(slots=True)
@@ -75,6 +78,11 @@ class Config:
         camera_ids = [camera.id for camera in self.cameras]
         if len(camera_ids) != len(set(camera_ids)):
             raise ValueError("config: duplicate camera ids")
+        for camera in self.cameras:
+            if camera.kind not in SOURCE_KINDS:
+                raise ValueError(
+                    f"config: camera {camera.id} kind {camera.kind!r} "
+                    f"not in {SOURCE_KINDS}")
 
         encode = self.encode
         if encode.fps <= 0:

@@ -8,10 +8,10 @@ import time
 import h5py
 import numpy as np
 
-from ..media.chunk_scheduler import ChunkScheduler, sidecar_for
+from ..encoding.chunk_scheduler import ChunkScheduler, sidecar_for
 from ..context import Context
 from ..core.paths import SCRATCH_DIR
-from ..media.encoder_backends import WriterDied, make_encoder_backend
+from ..encoding.encoder_backends import WriterDied, make_encoder_backend
 from ..metrics.defs import (
     enc_encode_duration_seconds,
     enc_idle,

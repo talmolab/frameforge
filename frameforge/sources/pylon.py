@@ -1,15 +1,16 @@
-"""Basler camera lifecycle: discover, open, configure, GigE tune."""
+"""Basler cameras via pypylon: discover, open, configure, GigE tune, grab."""
 
 import logging
 import os
 import time
 
-from pypylon import pylon
+from pypylon import genicam, pylon
 
 from ..config import CameraCfg, Config
-from ..metrics.defs import acq_camera_alive
+from ..core.logging_setup import DEDUP_KEY
+from .base import Frame, SourceDisconnect
 
-_GIGE_SUBNET_PREFIX = "192.168.10"
+_GIGE_DEVICE_CLASS = "BaslerGigE"
 _GIGE_IP_OFFSET = 100
 _GIGE_NETMASK = "255.255.255.0"
 _GIGE_GATEWAY = "0.0.0.0"
@@ -24,21 +25,25 @@ _DEFAULT_EXPOSURE_US = 5000.0
 _DEFAULT_GAIN = 0.0
 
 
-class Camera:
-    def __init__(self, camera_config: CameraCfg, full_config: Config,
-                 ip_override: str | None = None) -> None:
+class PylonSource:
+    def __init__(self, camera_config: CameraCfg, full_config: Config, *,
+                 ip_override: str | None = None,
+                 latest_only: bool = False) -> None:
         self.camera_config = camera_config
         self.config = full_config
         self.ip_override = ip_override
-        self.logger = logging.getLogger("frameforge.camera")
+        self.latest_only = latest_only
+        self.logger = logging.getLogger("frameforge.pylon")
 
         self.pylon_camera = None
         self.retrieve_timeout_ms = _DEFAULT_RETRIEVE_TIMEOUT_MS
+        self._pending_result = None
 
     def open(self) -> None:
         tl_factory = pylon.TlFactory.GetInstance()
         if self.camera_config.serial:
-            self._assign_ip(tl_factory)
+            if self._is_gige(tl_factory, self.camera_config.serial):
+                self._assign_ip(tl_factory)
             device_info = pylon.DeviceInfo()
             device_info.SetSerialNumber(self.camera_config.serial)
             pylon_camera = pylon.InstantCamera(
@@ -58,32 +63,73 @@ class Camera:
             else:
                 self._apply_defaults(pylon_camera)
 
-            self._apply_gige_tuning(pylon_camera)
+            if pylon_camera.GetDeviceInfo().GetDeviceClass() == _GIGE_DEVICE_CLASS:
+                self._apply_gige_tuning(pylon_camera)
             self.retrieve_timeout_ms = (
                 _heartbeat_ms(pylon_camera) or _DEFAULT_RETRIEVE_TIMEOUT_MS)
+
+            strategy = (pylon.GrabStrategy_LatestImageOnly if self.latest_only
+                        else pylon.GrabStrategy_OneByOne)
+            pylon_camera.StartGrabbing(strategy)
         except Exception:
-            acq_camera_alive.labels(cam=self.camera_config.id).set(0)
             self.close()
             raise
 
-        acq_camera_alive.labels(cam=self.camera_config.id).set(1)
-
         self.logger.info(
-            "cam=%s open serial=%s retrieve_ms=%d",
+            "cam=%s open serial=%s class=%s retrieve_ms=%d",
             self.camera_config.id,
             pylon_camera.GetDeviceInfo().GetSerialNumber(),
+            pylon_camera.GetDeviceInfo().GetDeviceClass(),
             self.retrieve_timeout_ms,
         )
 
+    def grab(self) -> Frame | None:
+        self._release_pending()
+        try:
+            result = self.pylon_camera.RetrieveResult(
+                self.retrieve_timeout_ms, pylon.TimeoutHandling_ThrowException)
+        except genicam.GenericException as pylon_error:
+            raise SourceDisconnect(str(pylon_error))
+
+        self._pending_result = result
+        if not result.GrabSucceeded():
+            self.logger.warning(
+                "incomplete frames cam=%s code=%s msg=%s",
+                self.camera_config.id, result.GetErrorCode(),
+                result.GetErrorDescription(),
+                extra={DEDUP_KEY: ("acq_incomplete", self.camera_config.id)})
+            return None
+
+        return Frame(result.GetArray(), time.time_ns(), result.GetBlockID())
+
     def close(self) -> None:
+        self._release_pending()
         if self.pylon_camera is None:
             return
+        try:
+            self.pylon_camera.StopGrabbing()
+        except Exception:
+            pass
         try:
             self.pylon_camera.Close()
         except Exception:
             pass
         self.pylon_camera = None
-        acq_camera_alive.labels(cam=self.camera_config.id).set(0)
+
+    def _release_pending(self) -> None:
+        if self._pending_result is None:
+            return
+        try:
+            self._pending_result.Release()
+        except Exception:
+            pass
+        self._pending_result = None
+
+    def _is_gige(self, tl_factory, serial) -> bool:
+        for device in tl_factory.EnumerateDevices():
+            if device.GetSerialNumber() == serial:
+                return device.GetDeviceClass() == _GIGE_DEVICE_CLASS
+        return True
 
     def _assign_ip(self, tl_factory) -> None:
         cfg = self.camera_config
@@ -95,10 +141,10 @@ class Camera:
                 self.logger.warning(
                     "cam=%s id has no trailing number; skip IP assign", cfg.id)
                 return
-            desired_ip = f"{_GIGE_SUBNET_PREFIX}.{_GIGE_IP_OFFSET + cam_number}"
+            desired_ip = f"{self.config.acq.gige_subnet}.{_GIGE_IP_OFFSET + cam_number}"
 
         try:
-            gige_tl = tl_factory.CreateTl("BaslerGigE")
+            gige_tl = tl_factory.CreateTl(_GIGE_DEVICE_CLASS)
         except Exception as error:
             self.logger.warning(
                 "cam=%s GigE TL unavailable err=%s", cfg.id, error)
