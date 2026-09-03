@@ -18,7 +18,7 @@ sudo FF_HOSTNAME=talmo-rig01 CAMERA_IFACE=enp1s0 \
      ./deploy/scripts/bootstrap-box.sh --with-broadcast
 ```
 
-Does: hostname, apt installs (multiverse + ffmpeg + intel-driver + mediamtx + prometheus + grafana + avahi + chrony + ssh + uv), talmolab user (prompts for password), system drop-ins (sysctl + journald), camera NIC profile (192.168.10.1/24, MTU 9000, jumbo off), headless boot (multi-user target, no network-wait — untested until the next box move).
+Does: hostname, apt installs (multiverse + ffmpeg + intel-driver + mediamtx + prometheus + grafana + avahi + chrony + ssh + uv), talmolab user (prompts for password), system drop-ins (sysctl + journald), camera NIC profile (192.168.10.1/24, `link-local: [ipv4]` — required so cameras that fell back to 169.254/16 still answer discovery and can be ForceIp'd; never set to `[]`, MTU 9000, jumbo off), headless boot (multi-user target, no network-wait — untested until the next box move).
 
 Drop `--with-broadcast` to skip ffmpeg + intel-driver + mediamtx (broadcast off).
 
@@ -93,5 +93,5 @@ sudo FF_HOSTNAME=talmo-rig01 CAMERA_IFACE=enp1s0 \
 
 - **Switch**: jumbo frames optional — currently OFF (packets stay 1500). Enable on the switch + set `jumbo_frames: true` only if dropped/incomplete frames appear.
 - **Switch IP**: set in your camera subnet (e.g., `192.168.10.2`) via UniFi mobile app or switch web UI
-- **Cameras**: no manual IP setup — frameforge assigns `cam_0N → 192.168.10.10N` via ForceIp on startup. Cameras only need to be reachable on the camera subnet (DHCP or link-local).
+- **Cameras**: no manual IP setup — frameforge assigns `cam_0N → 192.168.10.10N` via ForceIp on startup. Cameras only need to be reachable on the camera subnet (DHCP or link-local); link-local works only because the NIC profile keeps `link-local: [ipv4]` (see step 1).
 - **Cameras .pfs** (optional): tune in Basler Pylon Viewer + save .pfs file if you want non-default exposure/gain. Frameforge applies sensible programmatic defaults if no .pfs supplied.

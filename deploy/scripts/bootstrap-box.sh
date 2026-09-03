@@ -145,7 +145,7 @@ network:
       addresses: [192.168.10.1/24]
       dhcp4: false
       dhcp6: false
-      link-local: []
+      link-local: [ipv4]
       accept-ra: false
 EOF
 netplan apply
