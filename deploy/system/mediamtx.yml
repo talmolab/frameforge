@@ -6,3 +6,6 @@ webrtcAddress: :8889
 
 pathDefaults:
   maxReaders: 5
+
+paths:
+  all_others:
