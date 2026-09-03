@@ -1,8 +1,9 @@
 """Per-hardware-class specs: CPU pin map + broadcast capability.
 
 Single source of truth for "what does this hardware support / how to use it."
-Selected at startup via FF_HARDWARE env. Adding a new hardware class = add an
-enum variant, a HardwareSpec, and (if needed) a pin function.
+Selected at startup via FF_HARDWARE env; unset means ``generic`` (no pinning,
+no broadcast). Adding a new hardware class = add an enum variant, a
+HardwareSpec, and (if needed) a pin function.
 """
 
 from dataclasses import dataclass
@@ -11,6 +12,7 @@ from typing import Callable
 
 
 class HardwareClass(Enum):
+    GENERIC = "generic"
     MS01 = "ms01"
 
 
@@ -22,6 +24,7 @@ class HardwareSpec:
     name: str
     broadcast_enabled: bool
     broadcast_bitrate_mbps: float
+    broadcast_codec_args: tuple[str, ...]
     pin_function: PinFn
 
 
@@ -53,20 +56,31 @@ _MS01_SPEC = HardwareSpec(
     name=HardwareClass.MS01.value,
     broadcast_enabled=True,
     broadcast_bitrate_mbps=1.0,
+    broadcast_codec_args=(
+        "-c:v", "h264_qsv",
+        "-preset", "veryfast",
+        "-profile:v", "baseline",
+        "-look_ahead", "0",
+        "-g", "20",
+        "-bf", "0",
+        "-pix_fmt", "nv12",
+    ),
     pin_function=_ms01_pin,
 )
 
-_UNKNOWN_SPEC = HardwareSpec(
-    name="unknown",
+_GENERIC_SPEC = HardwareSpec(
+    name=HardwareClass.GENERIC.value,
     broadcast_enabled=False,
     broadcast_bitrate_mbps=1.0,
+    broadcast_codec_args=(),
     pin_function=_no_pin,
 )
 
 _SPECS: dict[str, HardwareSpec] = {
+    HardwareClass.GENERIC.value: _GENERIC_SPEC,
     HardwareClass.MS01.value: _MS01_SPEC,
 }
 
 
 def get_hardware_spec(name: str) -> HardwareSpec:
-    return _SPECS.get(name, _UNKNOWN_SPEC)
+    return _SPECS.get(name, _GENERIC_SPEC)

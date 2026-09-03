@@ -36,6 +36,7 @@ class Encoder:
             session_name=context.session_name,
             camera_id=camera_id,
             chunk_seconds=context.config.encode.chunk_seconds,
+            timezone=context.config.encode.timezone,
         )
 
     def run(self) -> None:
@@ -67,7 +68,7 @@ class Encoder:
             backend.open(
                 partial_chunk_path,
                 width=config.acq.width, height=config.acq.height,
-                fps=config.encode.fps,
+                fps=config.encode.fps, channels=config.acq.channels,
             )
         except Exception:
             enc_open_failures.labels(cam=camera_id).inc()

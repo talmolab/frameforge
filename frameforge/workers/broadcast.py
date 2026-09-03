@@ -6,6 +6,7 @@ import time
 
 from ..config import Config
 from ..context import Context
+from ..core.hardware import get_hardware_spec
 from ..encoding.encoder_backends import FfmpegBackend, MediaBackend
 from ..metrics.defs import bcast_encode_duration_seconds, broadcast_enabled
 from ..core.shm_ring import FrameRing
@@ -18,18 +19,10 @@ _RTSP_PORT = 8554
 
 
 def make_broadcast_backend(config: Config) -> MediaBackend:
-    bcast = config.broadcast
+    spec = get_hardware_spec(config.hardware)
+    bitrate_bps = str(int(config.broadcast.bitrate_mbps * 1_000_000))
     return FfmpegBackend(
-        codec_args=[
-            "-c:v", "h264_qsv",
-            "-preset", "veryfast",
-            "-profile:v", "baseline",
-            "-b:v", str(int(bcast.bitrate_mbps * 1_000_000)),
-            "-look_ahead", "0",
-            "-g", "20",
-            "-bf", "0",
-            "-pix_fmt", "nv12",
-        ],
+        codec_args=[*spec.broadcast_codec_args, "-b:v", bitrate_bps],
         output_format="rtsp",
         extra_output_args=("-rtsp_transport", "tcp"),
         capture_stderr=False,
@@ -84,6 +77,7 @@ class Broadcast:
                     width=self.context.config.acq.width,
                     height=self.context.config.acq.height,
                     fps=_BROADCAST_FPS,
+                    channels=self.context.config.acq.channels,
                 )
                 return backend
             except Exception:

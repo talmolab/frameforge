@@ -11,10 +11,11 @@ Storage credentials live in env vars read by the storage backend.
 
 import os
 from dataclasses import dataclass, field
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
 
-from .core.hardware import get_hardware_spec
+from .core.hardware import HardwareClass, get_hardware_spec
 from .core.paths import CAMERAS_FILE, TENANT_FILE
 from .sources import SOURCE_KINDS
 from .storage import STORAGE_KINDS
@@ -45,6 +46,7 @@ class EncodeCfg:
     crf: int = 21
     preset: str = "superfast"
     chunk_seconds: int = 3600
+    timezone: str = ""
 
 
 @dataclass(slots=True)
@@ -100,6 +102,15 @@ class Config:
             raise ValueError("config: encode.fps must be > 0")
         if encode.chunk_seconds <= 0:
             raise ValueError("config: encode.chunk_seconds must be > 0")
+        if encode.timezone:
+            try:
+                ZoneInfo(encode.timezone)
+            except ZoneInfoNotFoundError:
+                raise ValueError(
+                    f"config: encode.timezone {encode.timezone!r} unknown") from None
+        if self.broadcast.enabled and not get_hardware_spec(self.hardware).broadcast_codec_args:
+            raise ValueError(
+                f"config: broadcast enabled but hardware {self.hardware!r} has no codec")
         if self.acq.ring_slots < 2:
             raise ValueError("config: acq.ring_slots>=2 required")
         if self.acq.channels not in (1, 3):
@@ -169,9 +180,7 @@ def _build(tenant: dict, cameras: list[CameraCfg], hardware_name: str) -> Config
 
 
 def load_config() -> Config:
-    hardware_name = _env("FF_HARDWARE")
-    if not hardware_name:
-        raise ValueError("config: set FF_HARDWARE=ms01")
+    hardware_name = _env("FF_HARDWARE") or HardwareClass.GENERIC.value
 
     config = _build(_read_tenant(), _load_cameras(), hardware_name)
     config.validate()
@@ -181,6 +190,6 @@ def load_config() -> Config:
 # Tenant-only view for tools that run outside the pipeline (heartbeat):
 # no cameras file, no FF_HARDWARE.
 def load_tenant_config() -> Config:
-    config = _build(_read_tenant(), [], "")
+    config = _build(_read_tenant(), [], HardwareClass.GENERIC.value)
     validate_storage(config.transfer.storage)
     return config

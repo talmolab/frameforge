@@ -11,9 +11,13 @@ class WriterDied(RuntimeError):
     pass
 
 
+_INPUT_PIX_FMT = {1: "gray", 3: "rgb24"}
+
+
 class MediaBackend(abc.ABC):
     @abc.abstractmethod
-    def open(self, target: str, *, width: int, height: int, fps: float) -> None: ...
+    def open(self, target: str, *, width: int, height: int, fps: float,
+             channels: int = 1) -> None: ...
 
     @abc.abstractmethod
     def write(self, frame, ts_ns: int | None = None) -> bool: ...
@@ -37,7 +41,7 @@ class FfmpegBackend(MediaBackend):
         self._stderr_path = None
         self._stderr_fh = None
 
-    def open(self, target, *, width, height, fps) -> None:
+    def open(self, target, *, width, height, fps, channels=1) -> None:
         if self._capture_stderr:
             self._stderr_path = target + ".ffmpeg.stderr"
             self._stderr_fh = open(self._stderr_path, "wb")
@@ -50,7 +54,7 @@ class FfmpegBackend(MediaBackend):
             "-hide_banner", "-loglevel", "warning", "-nostats",
             "-y",
             "-f", "rawvideo",
-            "-pix_fmt", "gray",
+            "-pix_fmt", _INPUT_PIX_FMT[channels],
             "-s", "%dx%d" % (width, height),
             "-r", str(int(round(fps))),
             "-i", "-",
