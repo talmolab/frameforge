@@ -41,7 +41,7 @@ Camera IP is derived from its id (`cam_0N → 192.168.10.10N`, e.g. `cam_03 → 
 sudo ./deploy/scripts/install-frameforge.sh
 ```
 
-Does: git clone/pull, `uv sync --extra pylon` venv (pypylon is an optional extra; Basler cameras need it), systemd unit installs (frameforge + mediamtx + heartbeat), prometheus.yml, Grafana datasource + dashboard provisioning. Creates `/etc/frameforge/secrets.env` stub if missing.
+Does: git clone/pull, `uv sync --extra pylon` venv (pypylon is an optional extra; Basler cameras need it; override with `FF_EXTRAS="pylon s3"` for S3 storage), systemd unit installs (frameforge + mediamtx + heartbeat), prometheus.yml, Grafana datasource + dashboard provisioning. Creates `/etc/frameforge/secrets.env` stub if missing.
 
 Edit secrets before starting:
 

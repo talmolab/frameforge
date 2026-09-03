@@ -16,6 +16,8 @@
 
 set -euo pipefail
 
+[ "$(id -u)" -eq 0 ] || { echo "run as root (sudo)" >&2; exit 1; }
+
 WITH_BROADCAST=false
 for arg in "$@"; do
     case "$arg" in
@@ -55,15 +57,14 @@ apt-get install -y --no-install-recommends \
     avahi-daemon \
     chrony \
     openssh-server \
-    smbclient \
     curl \
+    ffmpeg \
     sudo
 systemctl enable --now chrony # NTP — chunk timestamps depend on a synced clock
 
 if [ "$WITH_BROADCAST" = "true" ]; then
-    echo "[3b/10] Installing broadcast packages (ffmpeg, intel-driver, oneVPL, mediamtx)..."
+    echo "[3b/10] Installing broadcast packages (intel-driver, oneVPL, mediamtx)..."
     apt-get install -y --no-install-recommends \
-        ffmpeg \
         intel-media-va-driver-non-free \
         libvpl2 \
         vainfo \
@@ -71,7 +72,8 @@ if [ "$WITH_BROADCAST" = "true" ]; then
     # mediamtx ships as a binary, not via apt — install pinned release from GitHub
     if ! command -v mediamtx >/dev/null; then
         MEDIAMTX_VERSION="1.9.3"
-        MEDIAMTX_SHA256="" # pin the asset sha256 to verify the download (recommended)
+        # sha256 of the linux_amd64 asset, computed 2026-09-03 (upstream publishes none)
+        MEDIAMTX_SHA256="0b885dbfa4ef9c14cd00191c57d90d804255ff50403a28b85ceee7988c535b60"
         tgz="$(mktemp)"
         curl -fSL "https://github.com/bluenviron/mediamtx/releases/download/v${MEDIAMTX_VERSION}/mediamtx_v${MEDIAMTX_VERSION}_linux_amd64.tar.gz" -o "$tgz"
         if [ -n "$MEDIAMTX_SHA256" ]; then
@@ -101,9 +103,9 @@ fi
 apt-get install -y --no-install-recommends grafana
 
 # Pin so unattended-upgrades can't restart them mid-recording (operator-driven upgrades).
-apt-mark hold prometheus grafana
+apt-mark hold prometheus grafana ffmpeg
 if [ "$WITH_BROADCAST" = "true" ]; then
-    apt-mark hold ffmpeg intel-media-va-driver-non-free libvpl2
+    apt-mark hold intel-media-va-driver-non-free libvpl2
 fi
 
 # Stop needrestart from auto-restarting frameforge after apt runs.
@@ -138,8 +140,9 @@ systemctl restart systemd-journald
 
 # ----- 8. Camera-facing NIC (netplan/networkd — Ubuntu Server default) -----
 echo "[8/10] Configuring camera NIC ($CAMERA_IFACE) via netplan..."
-install -m 600 /dev/null /etc/netplan/99-frameforge-cams.yaml
-cat >/etc/netplan/99-frameforge-cams.yaml <<EOF
+netplan_file=/etc/netplan/99-frameforge-cams.yaml
+netplan_new="$(mktemp)"
+cat >"$netplan_new" <<EOF
 network:
   version: 2
   renderer: networkd
@@ -151,11 +154,18 @@ network:
       link-local: [ipv4]
       accept-ra: false
 EOF
-netplan apply
+# Apply only on change: netplan apply bounces the NIC and drops every camera.
+if ! cmp -s "$netplan_new" "$netplan_file" 2>/dev/null; then
+    install -m 600 "$netplan_new" "$netplan_file"
+    netplan apply
+else
+    echo "  camera NIC profile unchanged; skipping netplan apply"
+fi
+rm -f "$netplan_new"
 
 # ----- 9. uv (Python package manager) -----
 echo "[9/10] Installing uv..."
-if ! command -v uv >/dev/null; then
+if ! sudo -u "$FF_USER" -H bash -lc 'command -v uv' >/dev/null; then
     curl -LsSf https://astral.sh/uv/install.sh | sudo -u "$FF_USER" sh
 fi
 

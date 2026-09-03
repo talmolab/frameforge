@@ -6,24 +6,34 @@
 # exist where appropriate (tenant.yaml, cameras.yaml, secrets.env).
 #
 # Usage (run as root, from repo root):
-#   sudo GIT_REF=main ./deploy/install-frameforge.sh
+#   sudo GIT_REF=main ./deploy/scripts/install-frameforge.sh
 #
 # Env:
-#   GIT_REF — branch / tag / commit to deploy (default: main)
-#   FF_HOME — install location (default: /usr/local/lib/frameforge)
-#   FF_USER — service account that owns and runs frameforge (default: talmolab)
+#   GIT_REF   — branch / tag / commit to deploy (default: main)
+#   FF_HOME   — install location (default: /usr/local/lib/frameforge)
+#   FF_USER   — service account that owns and runs frameforge (default: talmolab)
+#   FF_EXTRAS — space-separated uv extras to install (default: pylon; e.g. "pylon s3")
 
 set -euo pipefail
+
+[ "$(id -u)" -eq 0 ] || { echo "run as root (sudo)" >&2; exit 1; }
 
 GIT_REF="${GIT_REF:-main}"
 GIT_REMOTE="${GIT_REMOTE:-https://github.com/talmolab/frameforge.git}"
 FF_HOME="${FF_HOME:-/usr/local/lib/frameforge}"
 FF_USER="${FF_USER:-talmolab}"
+FF_EXTRAS="${FF_EXTRAS:-pylon}"
+
+extra_flags=""
+for extra in $FF_EXTRAS; do
+    extra_flags="$extra_flags --extra $extra"
+done
 
 echo "=== install-frameforge.sh ==="
 echo "  install dir:  $FF_HOME"
 echo "  git ref:      $GIT_REF"
 echo "  service user: $FF_USER"
+echo "  extras:       $FF_EXTRAS"
 echo
 
 # ----- 1. Code: git clone or pull -----
@@ -47,7 +57,7 @@ DEPLOY_DIR="$FF_HOME/deploy"
 # interpreter under ~/.local/share/uv/python/. System Python is never linked
 # — apt/needrestart can never trigger a frameforge restart from below.
 echo "[2/7] Syncing venv via uv..."
-sudo -u "$FF_USER" -H bash -lc "cd '$FF_HOME' && uv sync --extra pylon"
+sudo -u "$FF_USER" -H bash -lc "cd '$FF_HOME' && uv sync $extra_flags"
 
 # ----- 3. Frameforge runtime config (skip if present) -----
 echo "[3/7] Frameforge runtime config..."
@@ -80,10 +90,8 @@ sed -e "s/^User=.*/User=$FF_USER/" -e "s/^Group=.*/Group=$FF_USER/" \
 cp "$DEPLOY_DIR/systemd/heartbeat.service" /etc/systemd/system/heartbeat.service
 cp "$DEPLOY_DIR/systemd/heartbeat.timer" /etc/systemd/system/heartbeat.timer
 
-if [ -f "$DEPLOY_DIR/systemd/mediamtx.service" ]; then
+if command -v mediamtx >/dev/null; then
     cp "$DEPLOY_DIR/systemd/mediamtx.service" /etc/systemd/system/mediamtx.service
-fi
-if [ -f "$DEPLOY_DIR/system/mediamtx.yml" ]; then
     install -d /etc/mediamtx
     cp "$DEPLOY_DIR/system/mediamtx.yml" /etc/mediamtx/mediamtx.yml
 fi
@@ -132,9 +140,13 @@ EOF
 echo "[7/7] Enabling services..."
 systemctl daemon-reload
 systemctl enable --now prometheus.service
+systemctl reload-or-restart prometheus.service # pick up prometheus.yml changes
 systemctl enable --now grafana-server.service
 systemctl restart grafana-server.service # apply the anonymous-access drop-in
-[ -f /etc/systemd/system/mediamtx.service ] && systemctl enable --now mediamtx.service
+if command -v mediamtx >/dev/null; then
+    systemctl enable --now mediamtx.service
+    systemctl restart mediamtx.service # pick up mediamtx.yml changes
+fi
 systemctl enable heartbeat.timer
 systemctl start heartbeat.timer
 
