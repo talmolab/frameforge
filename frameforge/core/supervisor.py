@@ -32,7 +32,6 @@ logger = logging.getLogger("frameforge.supervisor")
 
 _BACKOFF_CAP_SECONDS = 30
 _DRAIN_JOIN_SLACK_SECONDS = 100
-_RING_SLOTS = 128
 _BROADCAST_RING_SLOTS = 24
 _FINAL_JOIN_SECONDS = 30
 
@@ -42,7 +41,8 @@ class Supervisor:
         self.config = config
         self._manager = multiprocessing.Manager()
 
-        session_name = config.session_name or datetime.datetime.now().strftime("%Y-%m-%d")
+        session_name = config.session_name or (
+            datetime.datetime.now().strftime("%Y-%m-%d") + config.session_postfix)
 
         self.context = Context(
             config=config,
@@ -64,8 +64,8 @@ class Supervisor:
 
         for cam_index, camera in enumerate(config.cameras):
             frame_ring = FrameRing(
-                _RING_SLOTS, acq.height, acq.width, acq.channels)
-            data_queue = multiprocessing.Queue(maxsize=_RING_SLOTS * 2)
+                acq.ring_slots, acq.height, acq.width, acq.channels)
+            data_queue = multiprocessing.Queue(maxsize=acq.ring_slots * 2)
             self._frame_rings.append(frame_ring)
 
             broadcast_ring = None

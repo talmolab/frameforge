@@ -89,13 +89,19 @@ flowchart LR
 | `transfer.storage.kind` | required | `smb` or `s3` |
 | `transfer.storage.*` | required | backend keys: `server`, `share`, `root` for smb; `bucket` (+ `prefix`, `endpoint_url`, `region`) for s3 |
 | `transfer.analytics` | `false` | `ffprobe` each chunk before upload and log frames, duration, size |
+| `transfer.low_disk_threshold_mb` | `500` | free scratch space below which the low-disk alarm fires |
 | `encode.fps` | `50` | camera frame rate; also fixes frames per chunk |
-| `encode.chunk_seconds` | `3600` | chunk length; indices are elapsed chunks since local midnight |
+| `encode.chunk_seconds` | `3600` | chunk length; indices are elapsed chunks since midnight |
+| `encode.preset` / `encode.crf` / `encode.gop` | `superfast` / `23` / `250` | libx264 speed, quality target, keyframe interval in frames |
+| `encode.timezone` | system local | zone for chunk indices and the day folder, e.g. `America/Los_Angeles` |
 | `acq.width` / `acq.height` / `acq.channels` | `1280` / `1024` / `1` | frame geometry; channels 1 = gray, 3 = RGB |
+| `acq.ring_slots` | `128` | shared-memory frames per camera between acquisition and encoder |
 | `acq.jumbo_frames` | `false` | GigE packet size 9000 instead of 1500; needs switch support |
 | `acq.gige_subnet` | `192.168.10` | GigE cameras are ForceIp'd to `<subnet>.10N` from `cam_0N` |
 | `broadcast.enabled` | from hardware | turn the live stream off on hardware that supports it |
+| `broadcast.bitrate_mbps` | from hardware | live stream bitrate |
 | `session_name` | today's date | top-level folder under the storage root |
+| `session_postfix` | none | appended to the date when `session_name` is unset, e.g. `-bench` |
 
 **`cameras.yaml`** — one entry per camera on this rig.
 
@@ -116,9 +122,6 @@ flowchart LR
 | `FF_PROM_DIR` | `/run/frameforge/prom` | Prometheus multiprocess files |
 | `SMB_USER` / `SMB_PASS` | — | SMB credentials |
 | `AWS_*` | — | S3 credentials via the standard boto3 chain |
-
-Encoder tuning (preset, CRF, GOP), ring depth, and the low-disk threshold are constants in
-the code, not deployment knobs.
 
 ## Supported backends
 

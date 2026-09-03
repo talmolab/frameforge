@@ -36,6 +36,7 @@ class Encoder:
             session_name=context.session_name,
             camera_id=camera_id,
             chunk_seconds=context.config.encode.chunk_seconds,
+            timezone=context.config.encode.timezone,
         )
 
     def run(self) -> None:
@@ -60,7 +61,7 @@ class Encoder:
         partial_chunk_path = chunk_path + ".part"
         os.makedirs(os.path.dirname(partial_chunk_path), exist_ok=True)
 
-        backend = make_encoder_backend()
+        backend = make_encoder_backend(config.encode)
         target_frames = self.scheduler.target_frames(config.encode.fps)
         opened_index = chunk_index
         try:

@@ -3,13 +3,9 @@
 import os
 import subprocess
 
-from ..config import BroadcastCfg
+from ..config import BroadcastCfg, EncodeCfg
 
 _INPUT_PIX_FMT = {1: "gray", 3: "rgb24"}
-
-_RECORD_PRESET = "superfast"
-_RECORD_CRF = 21
-_RECORD_GOP = 250
 
 
 class WriterDied(RuntimeError):
@@ -105,14 +101,14 @@ class FfmpegBackend:
             self._stderr_path = None
 
 
-def make_encoder_backend() -> FfmpegBackend:
+def make_encoder_backend(encode: EncodeCfg) -> FfmpegBackend:
     return FfmpegBackend(
         codec_args=[
             "-c:v", "libx264",
-            "-preset", _RECORD_PRESET,
-            "-crf", str(_RECORD_CRF),
+            "-preset", encode.preset,
+            "-crf", str(encode.crf),
             "-pix_fmt", "yuv420p",
-            "-g", str(_RECORD_GOP),
+            "-g", str(encode.gop),
             "-bf", "0",
             "-movflags", "+faststart",
         ],

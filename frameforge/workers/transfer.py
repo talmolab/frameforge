@@ -22,7 +22,6 @@ from ..metrics.defs import (
 )
 from ..storage import make_storage
 
-_LOW_DISK_THRESHOLD_MB = 500
 _LOW_DISK_LOG_INTERVAL_S = 300.0
 _FFPROBE_TIMEOUT_S = 10.0
 _MAX_UPLOAD_ATTEMPTS = 30
@@ -197,12 +196,13 @@ class Transfer:
             return
 
         free_mb = (disk_stat.f_bavail * disk_stat.f_frsize) // (1024 * 1024)
+        threshold_mb = self.transfer_config.low_disk_threshold_mb
         transfer_free_mb.set(free_mb)
 
-        if free_mb < _LOW_DISK_THRESHOLD_MB:
+        if free_mb < threshold_mb:
             self.logger.error(
                 "LOW DISK free_mb=%d threshold_mb=%d path=%s",
-                free_mb, _LOW_DISK_THRESHOLD_MB, self.scratch_dir,
+                free_mb, threshold_mb, self.scratch_dir,
                 extra={DEDUP_KEY: "transfer_low_disk",
                        DEDUP_INTERVAL_S: _LOW_DISK_LOG_INTERVAL_S})
             transfer_low_disk.set(1)

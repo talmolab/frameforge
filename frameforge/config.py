@@ -11,6 +11,7 @@ Storage credentials live in env vars read by the storage backend.
 
 import os
 from dataclasses import dataclass, field
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
 
@@ -32,6 +33,7 @@ class AcqCfg:
     width: int = 1280
     height: int = 1024
     channels: int = 1
+    ring_slots: int = 128
     jumbo_frames: bool = False
     gige_subnet: str = "192.168.10"
 
@@ -39,7 +41,11 @@ class AcqCfg:
 @dataclass(slots=True)
 class EncodeCfg:
     fps: float = 50.0
+    gop: int = 250
+    crf: int = 23
+    preset: str = "superfast"
     chunk_seconds: int = 3600
+    timezone: str = ""
 
 
 @dataclass(slots=True)
@@ -51,6 +57,7 @@ class StorageCfg:
 @dataclass(slots=True)
 class TransferCfg:
     storage: StorageCfg = field(default_factory=StorageCfg)
+    low_disk_threshold_mb: int = 500
     analytics: bool = False
 
 
@@ -71,6 +78,7 @@ class Config:
     transfer: TransferCfg = field(default_factory=TransferCfg)
     broadcast: BroadcastCfg = field(default_factory=BroadcastCfg)
     session_name: str = ""
+    session_postfix: str = ""
 
     def validate(self) -> None:
         if not self.cameras:
@@ -85,6 +93,14 @@ class Config:
             raise ValueError("config: encode.fps must be > 0")
         if self.encode.chunk_seconds <= 0:
             raise ValueError("config: encode.chunk_seconds must be > 0")
+        if self.encode.timezone:
+            try:
+                ZoneInfo(self.encode.timezone)
+            except ZoneInfoNotFoundError:
+                raise ValueError(
+                    f"config: encode.timezone {self.encode.timezone!r} unknown") from None
+        if self.acq.ring_slots < 2:
+            raise ValueError("config: acq.ring_slots>=2 required")
         if self.acq.channels not in (1, 3):
             raise ValueError("config: acq.channels must be 1 or 3")
         if self.broadcast.enabled and not self.broadcast.codec_args:
@@ -145,9 +161,10 @@ def _build(tenant: dict, cameras: list[CameraCfg], hardware_name: str) -> Config
         transfer=TransferCfg(storage=_storage_from_raw(storage_raw), **transfer_raw),
         broadcast=BroadcastCfg(
             enabled=broadcast_raw.get("enabled", spec.broadcast_enabled),
-            bitrate_mbps=spec.broadcast_bitrate_mbps,
+            bitrate_mbps=broadcast_raw.get("bitrate_mbps", spec.broadcast_bitrate_mbps),
             codec_args=spec.broadcast_codec_args),
         session_name=tenant.get("session_name", ""),
+        session_postfix=tenant.get("session_postfix", ""),
     )
 
 
