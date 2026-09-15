@@ -13,6 +13,7 @@ import logging
 import multiprocessing
 import signal
 import time
+from zoneinfo import ZoneInfo
 
 from prometheus_client import multiprocess
 
@@ -41,8 +42,9 @@ class Supervisor:
         self.config = config
         self._manager = multiprocessing.Manager()
 
+        tz = ZoneInfo(config.encode.timezone) if config.encode.timezone else None
         session_name = config.session_name or (
-            datetime.datetime.now().strftime("%Y-%m-%d") + config.session_postfix)
+            datetime.datetime.now(tz).strftime("%Y-%m-%d") + config.session_postfix)
 
         self.context = Context(
             config=config,

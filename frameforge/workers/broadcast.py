@@ -31,26 +31,32 @@ class Broadcast:
 
         self.logger.info("broadcast starting mount=%s", mount_uri)
 
-        backend = self._open_with_retry(mount_uri, camera_id)
-        if backend is None:
-            broadcast_enabled.set(0)
-            self.logger.error(
-                "broadcast %s giving up after %d open attempts",
-                camera_id, _OPEN_MAX_ATTEMPTS)
-            return
-
-        broadcast_enabled.set(1)
         try:
-            self._serve(backend, camera_id)
-        except Exception:
-            self.logger.exception(
-                "broadcast %s serve failed", camera_id)
+            while not self.context.hard_drain.is_set():
+                backend = self._open_with_retry(mount_uri, camera_id)
+                if backend is None:
+                    self.logger.error(
+                        "broadcast %s giving up after %d open attempts",
+                        camera_id, _OPEN_MAX_ATTEMPTS)
+                    return
+
+                broadcast_enabled.set(1)
+                try:
+                    self._serve(backend, camera_id)
+                except Exception:
+                    self.logger.exception(
+                        "broadcast %s serve failed", camera_id)
+                finally:
+                    try:
+                        backend.close()
+                    except Exception:
+                        pass
+                    broadcast_enabled.set(0)
+
+                if not self.context.hard_drain.is_set():
+                    self.logger.warning(
+                        "broadcast %s publisher died; reopening", camera_id)
         finally:
-            try:
-                backend.close()
-            except Exception:
-                pass
-            broadcast_enabled.set(0)
             self.logger.info("broadcast %s stopping", camera_id)
 
     def _open_with_retry(self, mount_uri: str, camera_id: str):
@@ -87,9 +93,12 @@ class Broadcast:
 
             try:
                 encode_start_ns = time.monotonic_ns()
-                backend.write(self.broadcast_ring.view(slot_index))
+                written = backend.write(self.broadcast_ring.view(slot_index))
 
                 encode_ns = time.monotonic_ns() - encode_start_ns
                 metric_encode_hist.observe(encode_ns / 1_000_000_000.0)
             finally:
                 self.broadcast_ring.release(slot_index)
+
+            if not written:
+                return
