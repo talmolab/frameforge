@@ -7,3 +7,12 @@ transfer:
 
 encode:
   chunk_seconds: 3600
+  preset: fast
+  crf: 21
+  gop: 250
+  bframes: 3
+  denoise: true
+  noise_reduction: 300
+
+acq:
+  ring_slots: 1024

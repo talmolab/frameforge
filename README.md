@@ -93,6 +93,9 @@ flowchart LR
 | `encode.fps` | `50` | camera frame rate; also fixes frames per chunk |
 | `encode.chunk_seconds` | `3600` | chunk length; indices are elapsed chunks since midnight |
 | `encode.preset` / `encode.crf` / `encode.gop` | `superfast` / `23` / `250` | libx264 speed, quality target, keyframe interval in frames |
+| `encode.bframes` | `0` | max consecutive B-frames; `3` cuts bytes on motion for ~15% more encode time |
+| `encode.denoise` | `true` | temporal `atadenoise` before the encoder; averages static pixels, leaves moving ones untouched |
+| `encode.noise_reduction` | `0` | libx264 `nr` dead-zone; `300` skips coding sub-noise detail, fewer bytes, lossy |
 | `encode.timezone` | system local | zone for chunk indices and the day folder, e.g. `America/Los_Angeles` |
 | `acq.width` / `acq.height` / `acq.channels` | `1280` / `1024` / `1` | frame geometry; channels 1 = gray, 3 = RGB |
 | `acq.ring_slots` | `128` | shared-memory frames per camera between acquisition and encoder |

@@ -44,6 +44,9 @@ class EncodeCfg:
     gop: int = 250
     crf: int = 23
     preset: str = "superfast"
+    bframes: int = 0
+    denoise: bool = True
+    noise_reduction: int = 0
     chunk_seconds: int = 3600
     timezone: str = ""
 
@@ -93,6 +96,10 @@ class Config:
             raise ValueError("config: encode.fps must be > 0")
         if self.encode.chunk_seconds <= 0:
             raise ValueError("config: encode.chunk_seconds must be > 0")
+        if self.encode.bframes < 0:
+            raise ValueError("config: encode.bframes must be >= 0")
+        if self.encode.noise_reduction < 0:
+            raise ValueError("config: encode.noise_reduction must be >= 0")
         if self.encode.timezone:
             try:
                 ZoneInfo(self.encode.timezone)

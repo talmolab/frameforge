@@ -102,18 +102,21 @@ class FfmpegBackend:
 
 
 def make_encoder_backend(encode: EncodeCfg) -> FfmpegBackend:
-    return FfmpegBackend(
-        codec_args=[
-            "-c:v", "libx264",
-            "-preset", encode.preset,
-            "-crf", str(encode.crf),
-            "-pix_fmt", "yuv420p",
-            "-g", str(encode.gop),
-            "-bf", "0",
-            "-movflags", "+faststart",
-        ],
-        output_format="mp4",
-    )
+    codec_args = [
+        "-c:v", "libx264",
+        "-preset", encode.preset,
+        "-crf", str(encode.crf),
+        "-pix_fmt", "yuv420p",
+        "-g", str(encode.gop),
+        "-bf", str(encode.bframes),
+        "-movflags", "+faststart",
+    ]
+    if encode.denoise:
+        codec_args += ["-vf", "atadenoise"]
+    if encode.noise_reduction:
+        codec_args += ["-x264-params", f"nr={encode.noise_reduction}"]
+
+    return FfmpegBackend(codec_args=codec_args, output_format="mp4")
 
 
 def make_broadcast_backend(broadcast: BroadcastCfg) -> FfmpegBackend:
