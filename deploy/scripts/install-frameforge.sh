@@ -62,16 +62,19 @@ sudo -u "$FF_USER" -H bash -lc "cd '$FF_HOME' && uv sync $extra_flags"
 # ----- 3. Frameforge runtime config (skip if present) -----
 echo "[3/7] Frameforge runtime config..."
 if [ ! -f /etc/frameforge/tenant.yaml ]; then
-    echo "  /etc/frameforge/tenant.yaml not present."
-    echo "  Pick a tenant from $FF_HOME/config/tenants/ and copy it:"
-    ls "$FF_HOME/config/tenants/"
-    echo "  e.g.: sudo cp $FF_HOME/config/tenants/example.yaml /etc/frameforge/tenant.yaml"
+    install -m 644 "$FF_HOME/config/tenants/example.yaml" /etc/frameforge/tenant.yaml
+    box_tz="$(timedatectl show -p Timezone --value 2>/dev/null || true)"
+    if [ -n "$box_tz" ] && ! grep -q '^  timezone:' /etc/frameforge/tenant.yaml; then
+        awk -v tz="$box_tz" '{print} /^encode:/{print "  timezone: " tz}' /etc/frameforge/tenant.yaml >/etc/frameforge/tenant.yaml.new
+        mv /etc/frameforge/tenant.yaml.new /etc/frameforge/tenant.yaml
+    fi
+    echo "  Created /etc/frameforge/tenant.yaml from config/tenants/example.yaml (encode.timezone = ${box_tz:-unset})."
+    echo "    sudoedit /etc/frameforge/tenant.yaml      # set transfer.storage server/share/root"
 fi
 if [ ! -f /etc/frameforge/cameras.yaml ]; then
-    echo "  /etc/frameforge/cameras.yaml not present."
-    echo "  Copy template + edit serials:"
-    echo "    sudo cp $FF_HOME/config/cameras.example.yaml /etc/frameforge/cameras.yaml"
-    echo "    sudoedit /etc/frameforge/cameras.yaml"
+    install -m 644 "$FF_HOME/config/cameras.example.yaml" /etc/frameforge/cameras.yaml
+    echo "  Created /etc/frameforge/cameras.yaml from config/cameras.example.yaml; its serials are placeholders."
+    echo "    sudoedit /etc/frameforge/cameras.yaml     # one line per real camera, real serials"
 fi
 if [ ! -f /etc/frameforge/secrets.env ]; then
     cat >/etc/frameforge/secrets.env <<'EOF'
@@ -150,12 +153,22 @@ fi
 systemctl enable heartbeat.timer
 systemctl start heartbeat.timer
 
-if systemctl is-active --quiet frameforge.service; then
+# Refuse to start while any config still carries example placeholders.
+placeholders=""
+grep -q changeme /etc/frameforge/secrets.env && placeholders="$placeholders secrets.env"
+grep -q storage.example.org /etc/frameforge/tenant.yaml && placeholders="$placeholders tenant.yaml"
+grep -Eq '2345678|2345679' /etc/frameforge/cameras.yaml && placeholders="$placeholders cameras.yaml"
+
+if [ -n "$placeholders" ]; then
+    echo "  Not starting frameforge: placeholders left in$placeholders."
+    echo "  Edit them (sudoedit /etc/frameforge/<file>), then: sudo systemctl start frameforge heartbeat"
+elif systemctl is-active --quiet frameforge.service; then
     echo "  Restarting frameforge..."
     systemctl restart frameforge.service
 else
-    echo "  frameforge.service installed (not started — start manually after configs verified)."
-    echo "    sudo systemctl start frameforge"
+    echo "  Starting frameforge + first heartbeat..."
+    systemctl start frameforge.service
+    systemctl start --no-block heartbeat.service
 fi
 
 echo

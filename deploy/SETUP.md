@@ -22,38 +22,33 @@ Does: hostname, apt installs (multiverse + ffmpeg + intel-driver + mediamtx + pr
 
 Drop `--with-broadcast` to skip ffmpeg + intel-driver + mediamtx (broadcast off).
 
-## 2. Per-rig configs
+Also writes a DHCP stanza for the uplink NIC (`UPLINK_IFACE`, default: the NIC holding the default route, else every other `en*` NIC), because switching the renderer to networkd otherwise drops the address a Desktop install got from NetworkManager.
 
-Pick the tenant + edit cameras + edit secrets:
-
-```bash
-sudo cp config/tenants/example.yaml /etc/frameforge/tenant.yaml
-sudoedit /etc/frameforge/tenant.yaml       # set transfer.storage: kind smb (server/share/root) or s3 (bucket, optional prefix/endpoint_url/region)
-sudo cp config/cameras.example.yaml /etc/frameforge/cameras.yaml
-sudoedit /etc/frameforge/cameras.yaml      # set real serials
-```
-
-Camera IP is derived from its id (`cam_0N → 192.168.10.10N`, e.g. `cam_03 → .103`) and applied via ForceIp on startup — independent of order in the file. List them N-ordered anyway for readability.
-
-## 3. Install frameforge
+## 2. Install frameforge
 
 ```bash
 sudo ./deploy/scripts/install-frameforge.sh
 ```
 
-Does: git clone/pull, `uv sync --extra pylon` venv (pypylon is an optional extra; Basler cameras need it; override with `FF_EXTRAS="pylon s3"` for S3 storage), systemd unit installs (frameforge + mediamtx + heartbeat), prometheus.yml, Grafana datasource + dashboard provisioning. Creates `/etc/frameforge/secrets.env` stub if missing.
+Does: git clone/pull, `uv sync --extra pylon` venv (pypylon is an optional extra; Basler cameras need it; override with `FF_EXTRAS="pylon s3"` for S3 storage), systemd unit installs (frameforge + mediamtx + heartbeat), prometheus.yml, Grafana datasource + dashboard provisioning. Copies `config/tenants/example.yaml`, `config/cameras.example.yaml`, and a `secrets.env` stub into `/etc/frameforge/` when missing. Refuses to start frameforge while any of the three still carries example placeholders.
 
-Edit secrets before starting:
+## 3. Per-rig configs
 
 ```bash
-sudoedit /etc/frameforge/secrets.env       # set real SMB_USER, SMB_PASS (or AWS_* for s3)
+sudoedit /etc/frameforge/tenant.yaml       # transfer.storage: kind smb (server/share/root) or s3 (bucket, optional prefix/endpoint_url/region); encode.timezone
+sudoedit /etc/frameforge/cameras.yaml      # one line per real camera, real serials in quotes
+sudoedit /etc/frameforge/secrets.env       # real SMB_USER, SMB_PASS (or AWS_* for s3)
 ```
+
+Camera IP is derived from its id (`cam_0N → 192.168.10.10N`, e.g. `cam_03 → .103`) and applied via ForceIp on startup — independent of order in the file. List them N-ordered anyway for readability.
 
 ## 4. Start
 
 ```bash
-sudo systemctl start frameforge
+sudo systemctl start frameforge heartbeat
 ```
+
+Re-running the installer after the edits does the same start. The heartbeat timer then fires two minutes after install and hourly.
 
 ## Verify
 

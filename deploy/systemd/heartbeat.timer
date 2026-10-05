@@ -4,6 +4,7 @@ Requires=heartbeat.service
 
 [Timer]
 OnBootSec=2min
+OnActiveSec=2min
 OnUnitActiveSec=60min
 Unit=heartbeat.service
 

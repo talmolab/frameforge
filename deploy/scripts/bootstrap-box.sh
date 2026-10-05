@@ -11,6 +11,8 @@
 # Env:
 #   FF_HOSTNAME    — rig hostname to set (required; not HOSTNAME, which bash presets)
 #   CAMERA_IFACE   — camera-facing NIC name (required, find via `ip link`)
+#   UPLINK_IFACE   — NIC(s) to the lab network, DHCP (optional; default: the NIC holding
+#                    the default route, else every other en*/eth* NIC)
 #   FF_USER        — service account that owns and runs frameforge (default: talmolab)
 #   FF_TIMEZONE    — box timezone, e.g. America/Los_Angeles (optional; chunk folders
 #                    follow the box clock unless the tenant sets encode.timezone)
@@ -158,11 +160,20 @@ install -d /etc/systemd/journald.conf.d
 cp "$DEPLOY_DIR/system/journald-frameforge.conf" /etc/systemd/journald.conf.d/99-frameforge.conf
 systemctl restart systemd-journald
 
-# ----- 8. Camera-facing NIC (netplan/networkd — Ubuntu Server default) -----
-echo "[8/10] Configuring camera NIC ($CAMERA_IFACE) via netplan..."
+# ----- 8. NICs (netplan/networkd) -----
+# renderer: networkd hands every NIC to networkd. On a Desktop install the uplink
+# was NetworkManager's, so without its own stanza the box loses its address.
+if [ -z "${UPLINK_IFACE:-}" ]; then
+    UPLINK_IFACE="$(ip -4 route show default 2>/dev/null | awk '{print $5; exit}')"
+fi
+if [ -z "$UPLINK_IFACE" ]; then
+    UPLINK_IFACE="$(ip -o link show | awk -F': ' '{print $2}' | grep -E '^(en|eth)' | grep -vx "$CAMERA_IFACE" | tr '\n' ' ')"
+fi
+echo "[8/10] Configuring NICs via netplan (camera: $CAMERA_IFACE, uplink dhcp: ${UPLINK_IFACE:-none})..."
 netplan_file=/etc/netplan/99-frameforge-cams.yaml
 netplan_new="$(mktemp)"
-cat >"$netplan_new" <<EOF
+{
+    cat <<EOF
 network:
   version: 2
   renderer: networkd
@@ -174,6 +185,11 @@ network:
       link-local: [ipv4]
       accept-ra: false
 EOF
+    for nic in $UPLINK_IFACE; do
+        [ "$nic" = "$CAMERA_IFACE" ] && continue
+        printf '    %s:\n      dhcp4: true\n' "$nic"
+    done
+} >"$netplan_new"
 # Apply only on change: netplan apply bounces the NIC and drops every camera.
 if ! cmp -s "$netplan_new" "$netplan_file" 2>/dev/null; then
     install -m 600 "$netplan_new" "$netplan_file"
