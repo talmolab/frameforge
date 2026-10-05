@@ -12,6 +12,8 @@
 #   FF_HOSTNAME    — rig hostname to set (required; not HOSTNAME, which bash presets)
 #   CAMERA_IFACE   — camera-facing NIC name (required, find via `ip link`)
 #   FF_USER        — service account that owns and runs frameforge (default: talmolab)
+#   FF_TIMEZONE    — box timezone, e.g. America/Los_Angeles (optional; chunk folders
+#                    follow the box clock unless the tenant sets encode.timezone)
 #   WITH_BROADCAST — "true" if --with-broadcast flag passed
 
 set -euo pipefail
@@ -61,6 +63,24 @@ apt-get install -y --no-install-recommends \
     ffmpeg \
     sudo
 systemctl enable --now chrony # NTP — chunk timestamps depend on a synced clock
+
+if [ -n "${FF_TIMEZONE:-}" ]; then
+    echo "[3a/10] Setting timezone $FF_TIMEZONE..."
+    timedatectl set-timezone "$FF_TIMEZONE"
+else
+    echo "[3a/10] FF_TIMEZONE unset; box stays on $(timedatectl show -p Timezone --value). Chunk folders follow the box clock unless tenant.yaml sets encode.timezone."
+fi
+
+# The Ubuntu Server installer's LVM default leaves most of the disk unallocated in
+# ubuntu-vg. Grow root into it so scratch has the whole drive. No-op otherwise.
+if vgs ubuntu-vg >/dev/null 2>&1; then
+    vg_free_mb="$(vgs --noheadings -o vg_free --units m --nosuffix ubuntu-vg | tr -d ' ' | cut -d. -f1)"
+    if [ "${vg_free_mb:-0}" -gt 0 ]; then
+        echo "[3a/10] Growing root LV into ${vg_free_mb} MB of free space..."
+        lvextend -l +100%FREE /dev/ubuntu-vg/ubuntu-lv
+        resize2fs /dev/ubuntu-vg/ubuntu-lv
+    fi
+fi
 
 if [ "$WITH_BROADCAST" = "true" ]; then
     echo "[3b/10] Installing broadcast packages (intel-driver, oneVPL, mediamtx)..."

@@ -14,11 +14,11 @@ Two scripts handle the install. Both idempotent — safe to re-run.
 ## 1. Bootstrap the box (OS-level)
 
 ```bash
-sudo FF_HOSTNAME=lab-rig01 CAMERA_IFACE=enp1s0 \
+sudo FF_HOSTNAME=lab-rig01 CAMERA_IFACE=enp1s0 FF_TIMEZONE=America/Los_Angeles \
      ./deploy/scripts/bootstrap-box.sh --with-broadcast
 ```
 
-Does: hostname, apt installs (multiverse + ffmpeg + intel-driver + mediamtx + prometheus + grafana + avahi + chrony + ssh + uv), service user (prompts for password), system drop-ins (sysctl + journald), camera NIC profile (192.168.10.1/24, `link-local: [ipv4]` — required so cameras that fell back to 169.254/16 still answer discovery and can be ForceIp'd; never set to `[]`, MTU 9000, jumbo off), headless boot (multi-user target, no network-wait — untested until the next box move).
+Does: hostname, apt installs (multiverse + ffmpeg + intel-driver + mediamtx + prometheus + grafana + avahi + chrony + ssh + uv), timezone (`FF_TIMEZONE`, optional; chunk folders follow the box clock unless the tenant sets `encode.timezone`), grows the root LV into the space the Ubuntu Server installer leaves unallocated (no-op on Desktop installs), service user (prompts for password), system drop-ins (sysctl + journald), camera NIC profile (192.168.10.1/24, `link-local: [ipv4]` — required so cameras that fell back to 169.254/16 still answer discovery and can be ForceIp'd; never set to `[]`, MTU 9000, jumbo off), headless boot (multi-user target, no network-wait — untested until the next box move).
 
 Drop `--with-broadcast` to skip ffmpeg + intel-driver + mediamtx (broadcast off).
 
