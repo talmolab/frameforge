@@ -65,6 +65,7 @@ apt-get install -y --no-install-recommends \
     ffmpeg \
     sudo
 systemctl enable --now chrony # NTP — chunk timestamps depend on a synced clock
+systemctl enable --now ssh    # Desktop installs ship it stopped
 
 if [ -n "${FF_TIMEZONE:-}" ]; then
     echo "[3a/10] Setting timezone $FF_TIMEZONE..."
@@ -86,9 +87,12 @@ fi
 
 if [ "$WITH_BROADCAST" = "true" ]; then
     echo "[3b/10] Installing broadcast packages (intel-driver, oneVPL, mediamtx)..."
+    # libvpl2 is only the dispatcher; libmfx-gen1.2 is the GPU runtime it loads
+    # (a Recommends, so --no-install-recommends drops it -> h264_qsv "MFX session: -9").
     apt-get install -y --no-install-recommends \
         intel-media-va-driver-non-free \
         libvpl2 \
+        libmfx-gen1.2 \
         vainfo \
         intel-gpu-tools
     # mediamtx ships as a binary, not via apt — install pinned release from GitHub
@@ -127,7 +131,7 @@ apt-get install -y --no-install-recommends grafana
 # Pin so unattended-upgrades can't restart them mid-recording (operator-driven upgrades).
 apt-mark hold prometheus grafana ffmpeg
 if [ "$WITH_BROADCAST" = "true" ]; then
-    apt-mark hold intel-media-va-driver-non-free libvpl2
+    apt-mark hold intel-media-va-driver-non-free libvpl2 libmfx-gen1.2
 fi
 
 # Stop needrestart from auto-restarting frameforge after apt runs.
@@ -140,8 +144,12 @@ EOF
 echo "[5/10] Creating $FF_USER user..."
 if ! id -u "$FF_USER" >/dev/null 2>&1; then
     useradd -m -s /bin/bash "$FF_USER"
+fi
+# A user without a password cannot ssh or sudo; keep prompting until passwd succeeds
+# instead of letting set -e abort the whole bootstrap on a mistyped retype.
+if [ "$(passwd -S "$FF_USER" | awk '{print $2}')" != "P" ]; then
     echo "  Set password for $FF_USER:"
-    passwd "$FF_USER"
+    until passwd "$FF_USER"; do echo "  passwd failed; try again"; done
 fi
 usermod -aG sudo,video,render "$FF_USER"
 

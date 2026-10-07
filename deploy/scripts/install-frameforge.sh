@@ -57,7 +57,12 @@ DEPLOY_DIR="$FF_HOME/deploy"
 # interpreter under ~/.local/share/uv/python/. System Python is never linked
 # — apt/needrestart can never trigger a frameforge restart from below.
 echo "[2/7] Syncing venv via uv..."
-sudo -u "$FF_USER" -H bash -lc "cd '$FF_HOME' && uv sync $extra_flags"
+# uv lives in the service user's ~/.local/bin; use it by path so this works from a
+# shell that has not re-read its profile since bootstrap installed it.
+UV_BIN="$(sudo -u "$FF_USER" -H bash -lc 'command -v uv' 2>/dev/null || true)"
+UV_BIN="${UV_BIN:-$(getent passwd "$FF_USER" | cut -d: -f6)/.local/bin/uv}"
+[ -x "$UV_BIN" ] || { echo "uv not found for $FF_USER; run bootstrap-box.sh first" >&2; exit 1; }
+sudo -u "$FF_USER" -H bash -c "cd '$FF_HOME' && '$UV_BIN' sync $extra_flags"
 
 # ----- 3. Frameforge runtime config (skip if present) -----
 echo "[3/7] Frameforge runtime config..."
