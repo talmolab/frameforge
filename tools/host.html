@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>frameforge host</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2032%2032%27%3E%3Crect%20width%3D%2732%27%20height%3D%2732%27%20rx%3D%278%27%20fill%3D%27%23f97316%27%2F%3E%3C%2Fsvg%3E">
+<style>
+ *{box-sizing:border-box}
+ body{margin:0;min-height:100vh;color:#f0e9e0;font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+      background:radial-gradient(1100px 520px at 50% -14%,#3a1e08,#180f08 60%)}
+ a{color:inherit;text-decoration:none}
+ .wrap{max-width:1140px;margin:0 auto;padding:28px 24px 60px}
+ .top{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px;flex-wrap:wrap}
+ .brand{display:flex;align-items:center;gap:12px}
+ .logo{width:40px;height:40px;flex:none;border-radius:11px;display:grid;place-items:center;color:#fff;
+       background:linear-gradient(160deg,#fb923c,#ea580c);box-shadow:0 6px 20px rgba(249,115,22,.4)}
+ .logo svg{width:23px;height:23px}
+ h1{margin:0;font-size:25px;letter-spacing:-.02em}
+ h1 .fg{background:linear-gradient(90deg,#fb923c,#ef4444);-webkit-background-clip:text;background-clip:text;color:transparent}
+ .sub{color:#b7a894;font-size:13px;margin:3px 0 0}
+ .btn{background:#2563eb;color:#fff;border:0;border-radius:10px;padding:9px 14px;font:inherit;font-weight:600;cursor:pointer;display:inline-block}
+ .btn:hover{filter:brightness(1.12)}
+ .btn.g{background:linear-gradient(160deg,#fb923c,#ea580c)} .btn.ghost{background:#2a1c11;border:1px solid #4a3722}
+ .pill{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:700;padding:4px 11px;border-radius:999px;white-space:nowrap}
+ .pill::before{content:"";width:8px;height:8px;border-radius:50%}
+ .pill.ok{background:rgba(74,222,128,.15);color:#4ade80}   .pill.ok::before{background:#4ade80}
+ .pill.warn{background:rgba(251,191,36,.16);color:#fbbf24} .pill.warn::before{background:#fbbf24}
+ .pill.down{background:rgba(248,113,113,.16);color:#f87171}.pill.down::before{background:#f87171}
+ .pill.idle{background:rgba(148,132,110,.18);color:#c9b79f}.pill.idle::before{background:#c9b79f}
+ .panel{background:linear-gradient(180deg,#241a10,#1c150d);border:1px solid #3f2d1a;border-radius:14px;padding:18px 20px;margin:0 0 16px}
+ .panel h2{margin:0 0 14px;font-size:13px;font-weight:700;color:#cbb79b;letter-spacing:.06em;text-transform:uppercase;display:flex;justify-content:space-between;align-items:center}
+ .panel h2 span{font-weight:400;text-transform:none;letter-spacing:0;color:#b7a894}
+ .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+ .stat{background:#17100a;border:1px solid #362617;border-radius:11px;padding:12px 14px}
+ .stat .k{color:#b7a894;font-size:12px} .stat .v{font-size:22px;font-weight:750;margin-top:4px}
+ .stat.warn .v{color:#fbbf24} .stat.down .v{color:#f87171}
+ table{width:100%;border-collapse:collapse;font-size:13.5px}
+ th{color:#b7a894;font-weight:600;font-size:12px;text-align:left;padding:6px 10px;border-bottom:1px solid #362617}
+ td{padding:8px 10px;border-bottom:1px solid #2a1c11;white-space:nowrap}
+ td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
+ td.warn{color:#fbbf24} td.down{color:#f87171}
+ .grid{display:flex;flex-wrap:wrap;gap:10px}
+ .wall{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+ .tile{position:relative;background:#000;border:1px solid #3f2d1a;border-radius:12px;overflow:hidden}
+ .tile iframe{display:block;width:100%;aspect-ratio:5/4;border:0;background:#000}
+ .tile .cap{position:absolute;top:8px;left:10px;z-index:2;background:rgba(24,15,8,.75);padding:3px 9px;border-radius:7px;font-size:12px;font-weight:600}
+ .cmds{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:10px}
+ .cmd{background:#17100a;border:1px solid #362617;border-radius:11px;padding:10px 14px;cursor:pointer}
+ .cmd:hover{border-color:#f97316}
+ .cmd .k{color:#b7a894;font-size:12px;margin-bottom:4px}
+ .cmd code{display:block;font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:#fde68a;white-space:pre-wrap;word-break:break-all}
+ .note{color:#b7a894;font-size:12.5px;margin-top:10px}
+ .err{background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.4);color:#fca5a5;border-radius:10px;padding:10px 14px;margin:12px 0;font-size:13.5px}
+ .foot{color:#7a6a56;font-size:12px;margin-top:28px;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+<script>
+// Single-host console. Serve from the box (python3 -m http.server 8080 -d tools) or open
+// with ?host=<ip> from a laptop. Reads only what the box already exposes: Prometheus :9090,
+// Grafana :3000, mediamtx :8888/:8889. No control path; the commands panel is copy-paste.
+const HOST = new URLSearchParams(location.search).get("host") || location.hostname || "localhost";
+const PROM = 9090, GRAFANA = 3000, HLS = 8888, WEBRTC = 8889, METRICS = 9100;
+const DASH = "/d/frameforge-per-box/frameforge-e28094-per-box?orgId=1&from=now-24h&to=now&timezone=browser&var-cam=$__all&refresh=30s";
+const app = document.getElementById("app");
+const HAMMER = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 12-8.5 8.5c-.83.83-2.17.83-3 0a2.12 2.12 0 0 1 0-3L12 9"/><path d="M17.64 15 22 10.64"/><path d="m20.91 11.7-1.25-1.25c-.6-.6-.93-1.4-.93-2.25v-.86L16.01 4.6a5.56 5.56 0 0 0-3.94-1.64H9l.92.82A6.18 6.18 0 0 1 12 8.4v1.56l2 2h.86c.85 0 1.65.33 2.25.93l1.25 1.25"/></svg>`;
+const LOST = ["acq_overrun_drops_total", "acq_missed_frames_total", "acq_incomplete_total"];
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const fmt = (v, d = 0) => v == null || isNaN(v) ? "&mdash;" : v.toFixed(d);
+const hours = s => s == null ? "&mdash;" : s < 7200 ? Math.round(s / 60) + " min" : s < 172800 ? (s / 3600).toFixed(1) + " h" : (s / 86400).toFixed(1) + " d";
+
+async function vec(expr){
+  const r = await fetch(`http://${HOST}:${PROM}/api/v1/query?query=` + encodeURIComponent(expr), { signal: AbortSignal.timeout(3000) });
+  return (await r.json()).data.result;
+}
+async function one(expr){ try { const v = await vec(expr); return v.length ? parseFloat(v[0].value[1]) : 0; } catch (_) { return null; } }
+async function byLabel(expr, label){
+  try { const o = {}; (await vec(expr)).forEach(m => { o[m.metric[label] || "?"] = parseFloat(m.value[1]); }); return o; } catch (_) { return null; }
+}
+
+async function load(){
+  const lost24 = LOST.map(m => `(sum by (cam)(increase(${m}[24h])) or vector(0))`).join(" + ");
+  const [up, alive, fps, ringFree, qdepth, idle, lostCam, encCpu, encMs,
+         sess, upl24, fail24, disc24, free, lowDisk, prefix, drain, restarts, rss, cpu, load1, mem, bcast] = await Promise.all([
+    one("frameforge_uptime_seconds"),
+    byLabel("acq_camera_alive", "cam"),
+    byLabel("rate(acq_loop_duration_seconds_count[1m])", "cam"),
+    byLabel("acq_enc_ring_free", "cam"),
+    byLabel("acq_enc_queue_depth", "cam"),
+    byLabel("enc_idle", "cam"),
+    byLabel(`sum by (cam)(increase(acq_overrun_drops_total[24h]) + increase(acq_missed_frames_total[24h]) + increase(acq_incomplete_total[24h]))`, "cam"),
+    byLabel('worker_cpu_ratio{worker=~"enc:.*"}', "worker"),
+    byLabel("1000 * rate(enc_encode_duration_seconds_sum[1m]) / rate(enc_encode_duration_seconds_count[1m])", "cam"),
+    one("transfer_session_alive"), one("increase(transfer_uploaded_total[24h])"), one("increase(transfer_failures_total[24h])"),
+    one("increase(transfer_discarded_total[24h])"), one("transfer_free_mb/1024"), one("transfer_low_disk"),
+    byLabel("transfer_session_prefix", "prefix"), one("sv_soft_drain_pending"),
+    byLabel("increase(sv_worker_restarts_total[24h])", "worker"), byLabel("worker_rss_mb", "worker"),
+    one("host_cpu_busy_ratio*100"), one("host_load_avg_1m"), one("host_mem_available_mb/1024"), one("broadcast_enabled"),
+  ]);
+  const cams = Object.keys(alive || {}).sort();
+  const live = cams.filter(c => alive[c] >= 1).length;
+  const lostTotal = lostCam ? Object.values(lostCam).reduce((a, b) => a + b, 0) : null;
+  const restartTotal = restarts ? Object.values(restarts).reduce((a, b) => a + b, 0) : 0;
+  const reachable = up != null;
+  const status = !reachable ? "down"
+    : (live < cams.length || sess === 0 || lowDisk === 1 || (lostTotal || 0) > 0 || (cpu || 0) > 85) ? "warn" : "ok";
+  return { up, alive, fps, ringFree, qdepth, idle, lostCam, encCpu, encMs, sess, upl24, fail24, disc24, free, lowDisk,
+           prefix: prefix ? Object.keys(prefix)[0] : null, drain, restarts, rss, cpu, load1, mem, bcast, cams, live, lostTotal, restartTotal, reachable, status };
+}
+
+function render(d){
+  const pill = `<span class="pill ${d.status}">${{ ok: "OK", warn: "ATTENTION", down: "UNREACHABLE" }[d.status]}</span>`;
+  const stat = (k, v, cls = "") => `<div class="stat ${cls}"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+  const camRows = d.cams.map(c => {
+    const a = d.alive[c] >= 1, lost = d.lostCam?.[c] || 0, ring = d.ringFree?.[c], q = d.qdepth?.[c];
+    const ecpu = d.encCpu?.[`enc:${c}`];
+    return `<tr>
+      <td><b>${esc(c)}</b></td>
+      <td class="${a ? "" : "down"}">${a ? "open" : "disconnected"}</td>
+      <td class="r">${fmt(d.fps?.[c], 1)}</td>
+      <td class="r ${ring != null && ring < 128 ? "warn" : ""}">${fmt(ring)}</td>
+      <td class="r ${q > 64 ? "warn" : ""}">${fmt(q)}</td>
+      <td class="r">${fmt(d.encMs?.[c], 1)}</td>
+      <td class="r ${ecpu > 0.85 ? "warn" : ""}">${ecpu == null ? "&mdash;" : Math.round(ecpu * 100) + "%"}</td>
+      <td>${d.idle?.[c] >= 1 ? "idle (boundary)" : "encoding"}</td>
+      <td class="r ${lost > 0 ? "warn" : ""}">${fmt(lost)}</td></tr>`;
+  }).join("");
+  const workerRows = Object.keys(d.rss || {}).sort().map(w =>
+    `<tr><td><b>${esc(w)}</b></td><td class="r">${fmt(d.rss[w])}</td><td class="r ${(d.restarts?.[w] || 0) > 0 ? "warn" : ""}">${fmt(d.restarts?.[w] || 0)}</td></tr>`).join("");
+  const wall = d.cams.length ? `<div class="wall">${d.cams.map(c => `<div class="tile"><span class="cap">${esc(c)}</span>
+    <iframe src="http://${HOST}:${WEBRTC}/${encodeURIComponent(c)}" allow="autoplay" allowfullscreen loading="lazy"></iframe></div>`).join("")}</div>`
+    : `<p class="note">No cameras reporting.</p>`;
+  const cmds = [
+    ["tail the log", "sudo journalctl -u frameforge -f -n 50"],
+    ["restart (finishes the current hour first)", "sudo systemctl restart frameforge"],
+    ["stop (finishes the current hour first)", "sudo systemctl stop frameforge"],
+    ["kill now (current hour discarded)", "sudo systemctl kill -s SIGKILL frameforge"],
+    ["edit config, then restart", "sudoedit /etc/frameforge/tenant.yaml"],
+    ["edit cameras, then restart", "sudoedit /etc/frameforge/cameras.yaml"],
+    ["rotate storage password, then restart", "sudoedit /etc/frameforge/secrets.env"],
+    ["update code (restarts if running)", "cd ~/frameforge && git pull && sudo ./deploy/scripts/install-frameforge.sh"],
+    ["send a heartbeat now", "sudo systemctl start heartbeat"],
+    ["calibrate a lens (kill frameforge first)", "cd /usr/local/lib/frameforge && sudo -u talmolab -H /home/talmolab/.local/bin/uv run --extra pylon --extra tools python -m tools.calibrator <serial>"],
+  ].map(([k, c]) => `<div class="cmd" onclick="navigator.clipboard?.writeText(this.querySelector('code').textContent)" title="click to copy"><div class="k">${k}</div><code>${esc(c)}</code></div>`).join("");
+
+  app.innerHTML = `
+    <div class="top"><div class="brand"><span class="logo">${HAMMER}</span>
+      <div><h1>frame<span class="fg">forge</span> host</h1><p class="sub">${esc(HOST)} &middot; ${d.reachable ? "up " + hours(d.up) : "prometheus unreachable"}${d.drain >= 1 ? " &middot; <b>soft drain pending</b>" : ""}</p></div></div>
+      <div class="grid">${pill}
+        <a class="btn g" href="http://${HOST}:${GRAFANA}${DASH}" target="_blank">Grafana &rarr;</a>
+        <a class="btn ghost" href="http://${HOST}:${HLS}" target="_blank">live view</a>
+        <a class="btn ghost" href="http://${HOST}:${METRICS}/metrics" target="_blank">raw metrics</a>
+        <a class="btn ghost" href="index.html">fleet</a></div></div>
+    ${d.reachable ? "" : `<div class="err">Could not reach http://${esc(HOST)}:${PROM}. Open this page over http from a machine on the box's VLAN, or pass ?host=&lt;ip&gt;.</div>`}
+    <div class="panel"><h2>Overview</h2><div class="stats">
+      ${stat("Cameras open", d.cams.length ? `${d.live}/${d.cams.length}` : "&mdash;", d.cams.length && d.live < d.cams.length ? "warn" : "")}
+      ${stat("Frames lost (24h)", fmt(d.lostTotal), d.lostTotal > 0 ? "warn" : "")}
+      ${stat("Storage session", d.sess == null ? "&mdash;" : d.sess >= 1 ? "open" : "down", d.sess === 0 ? "down" : "")}
+      ${stat("Uploaded (24h)", fmt(d.upl24))}
+      ${stat("Upload failures (24h)", fmt(d.fail24), d.fail24 > 0 ? "warn" : "")}
+      ${stat("Scratch free", fmt(d.free, 1) + " GB", d.lowDisk === 1 ? "down" : "")}
+      ${stat("CPU busy", fmt(d.cpu) + "%", d.cpu > 85 ? "warn" : "")}
+      ${stat("Load 1m", fmt(d.load1, 1))}
+      ${stat("Mem free", fmt(d.mem, 1) + " GB")}
+      ${stat("Broadcast", d.bcast == null ? "&mdash;" : d.bcast >= 1 ? d.bcast + " up" : "down", d.bcast === 0 ? "warn" : "")}
+      ${stat("Worker restarts (24h)", fmt(d.restartTotal), d.restartTotal > 0 ? "warn" : "")}
+    </div><p class="note">uploads go to <b>${esc(d.prefix || "?")}</b> &middot; discarded after max attempts (24h): ${fmt(d.disc24)}</p></div>
+    <div class="panel"><h2>Cameras <span>acq, ring, encoder per cam</span></h2><table>
+      <tr><th>cam</th><th>source</th><th class="r">fps</th><th class="r">ring free</th><th class="r">enc queue</th><th class="r">encode ms</th><th class="r">enc cpu</th><th>state</th><th class="r">lost 24h</th></tr>
+      ${camRows || `<tr><td colspan="9" class="note">none</td></tr>`}</table></div>
+    <div class="panel"><h2>Live <span>mediamtx WebRTC :${WEBRTC}</span></h2>${wall}</div>
+    <div class="panel"><h2>Workers</h2><table><tr><th>worker</th><th class="r">RSS MB</th><th class="r">restarts 24h</th></tr>${workerRows}</table></div>
+    <div class="panel"><h2>Commands <span>run on the box over ssh &middot; click to copy</span></h2><div class="cmds">${cmds}</div>
+      <p class="note">Config is read once at start: every edit needs a restart. Restart and stop wait for the hour boundary; kill does not.</p></div>
+    <p class="foot">🔨 frameforge host console &middot; reads prometheus every 15 s &middot; no control path</p>`;
+}
+
+async function tick(){ render(await load()); }
+tick();
+setInterval(tick, 15000);
+</script>
+</body>
+</html>
