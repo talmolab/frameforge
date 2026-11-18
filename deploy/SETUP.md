@@ -62,6 +62,25 @@ Browser (lab LAN):
 - `http://lab-rig01.local:8888` — mediamtx web UI, pick a cam to watch live
 - `<root>/_ff_heartbeat/<hostname>.json` on storage — heartbeat; point the fleet console at that folder
 
+## Setup
+
+Two modes, both re-runnable:
+
+```bash
+sudo ff setup                # desk: fresh box. hostname, timezone, camera NIC, service password,
+                             #       storage server/share/root + credentials (connection is tested),
+                             #       then runs bootstrap-box.sh and install-frameforge.sh for you.
+                             #       Prints the device id and hub token once.
+sudo ff setup --mode rack    # rack: cameras cabled. Lists serials on the switch, asks for the
+                             #       cam_XX=serial mapping (default: current file + new serials on
+                             #       the next free id), shows the diff, writes cameras.yaml,
+                             #       restarts at the chunk boundary (or starts).
+```
+
+Desk writes `tenant.yaml` from `config/tenants/example.yaml` with storage and timezone filled,
+an empty `cameras.yaml`, and `secrets.env` (SMB creds, `FF_DEVICE_ID`, `FF_TOKEN`). Editing the
+files by hand still works; `ff restart` applies them.
+
 ## Operations
 
 `ff` is installed on PATH by the installer and runs as root:

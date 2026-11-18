@@ -70,12 +70,12 @@ class Node:
 
     @verb("stop and remember that the stop was intentional")
     def pause(self) -> ActionResult:
-        self._set_desired(paused=True)
+        self.set_desired(paused=True)
         return _result("pause", self.system.stop(UNIT))
 
     @verb("clear pause and start")
     def resume(self) -> ActionResult:
-        self._set_desired(paused=False)
+        self.set_desired(paused=False)
         return _result("resume", self.system.start(UNIT))
 
     @verb("journal for the frameforge unit",
@@ -97,6 +97,23 @@ class Node:
                 ip=device.GetIpAddress() if device.IsIpAddressAvailable() else "",
                 slot=slots.get(serial)))
         return sorted(found, key=lambda cam: (cam.slot or "~", cam.serial))
+
+    @verb("desk: configure a fresh box; rack: assign cameras on the switch to slots",
+          Arg("mode", "desk | rack", default="desk"),
+          Arg("yes", "skip confirmations", flag=True))
+    def setup(self, mode: str = "desk", yes: bool = False,
+              answers: dict | None = None) -> ActionResult:
+        from . import flows, setup_desk, setup_rack
+
+        prompter = flows.Answers(answers, assume_yes=yes) if answers is not None \
+            else flows.Prompter()
+        flow = {"desk": setup_desk, "rack": setup_rack}.get(mode)
+        if flow is None:
+            return ActionResult("setup", False, f"unknown mode {mode!r}; use desk or rack")
+        try:
+            return flow.run(self, prompter)
+        except ValueError as error:
+            return ActionResult("setup", False, str(error))
 
     @verb("pull and reinstall; restarts if running", Arg("ref", "git ref", default="main"))
     def update(self, ref: str = "main") -> ActionResult:
@@ -128,7 +145,7 @@ class Node:
         except (OSError, ValueError, TypeError):
             return DesiredState()
 
-    def _set_desired(self, **changes) -> None:
+    def set_desired(self, **changes) -> None:
         desired = dataclasses.replace(self.desired(), **changes)
         os.makedirs(os.path.dirname(DESIRED_FILE), exist_ok=True)
         tmp_path = DESIRED_FILE + ".tmp"
