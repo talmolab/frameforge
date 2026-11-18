@@ -73,8 +73,8 @@ sudo ff setup                # desk: fresh box. hostname, timezone, camera NIC, 
                              #       Prints the device id and hub token once.
 sudo ff setup --mode rack    # rack: cameras cabled. Lists serials on the switch, asks for the
                              #       cam_XX=serial mapping (default: current file + new serials on
-                             #       the next free id), shows the diff, writes cameras.yaml,
-                             #       restarts at the chunk boundary (or starts).
+                             #       the next free id), shows the diff, writes cameras.yaml.
+                             #       Apply with `ff restart` (chunk boundary) or `ff start`.
 ```
 
 Desk writes `tenant.yaml` from `config/tenants/example.yaml` with storage and timezone filled,

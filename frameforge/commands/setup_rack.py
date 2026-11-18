@@ -1,6 +1,6 @@
 """Rack mode: cameras are cabled. cameras.yaml maps cam_XX ids to serials; the id is
 explicit (it fixes the camera's IP) and the list is free to renumber. The operator
-edits the mapping, sees the diff, and frameforge (re)starts at the chunk boundary.
+edits the mapping, sees the diff, and applies it with ``ff restart`` themselves.
 """
 
 import re
@@ -45,19 +45,19 @@ def run(node, prompter: Prompter) -> ActionResult:
         validate_source("pylon", {"serial": serial})
 
     diff = _diff(current, mapping)
-    prompter.say(diff or "no change")
-    if diff and not prompter.confirm("Write cameras.yaml?"):
-        return ActionResult("setup", False, "cancelled; cameras.yaml unchanged")
-    if diff:
-        write_yaml(CAMERAS_FILE, {"cameras": [
-            {"id": cam_id, "serial": serial} for cam_id, serial in sorted(mapping.items())]})
-
     running = node.system.is_active("frameforge") == "active"
-    outcome = node.restart() if running else node.start()
-    return ActionResult("setup", outcome.ok, "\n".join([
-        f"{len(mapping)} camera(s) in {CAMERAS_FILE}",
-        f"{outcome.action}: {'ok' if outcome.ok else outcome.detail}",
-    ]))
+    apply = "ff restart (applies at the chunk boundary)" if running else "ff start"
+    if not diff:
+        prompter.say("no change")
+        return ActionResult("setup", True, f"{len(mapping)} camera(s) unchanged"
+                            + ("" if running else f"; not running: {apply}"))
+
+    prompter.say(diff)
+    if not prompter.confirm("Write cameras.yaml?"):
+        return ActionResult("setup", False, "cancelled; cameras.yaml unchanged")
+    write_yaml(CAMERAS_FILE, {"cameras": [
+        {"id": cam_id, "serial": serial} for cam_id, serial in sorted(mapping.items())]})
+    return ActionResult("setup", True, f"{len(mapping)} camera(s) in {CAMERAS_FILE}; apply with {apply}")
 
 
 def _format(mapping: dict[str, str]) -> str:
