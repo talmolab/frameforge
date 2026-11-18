@@ -64,12 +64,27 @@ Browser (lab LAN):
 
 ## Operations
 
+`ff` is installed on PATH by the installer and runs as root:
+
 ```bash
-journalctl -u frameforge -f                # live tail
-journalctl -u frameforge --since='-7d'     # last week
-systemctl restart frameforge               # graceful restart: drain current chunk (up to 1h), then start
-systemctl stop frameforge                  # soft drain: finish current chunk, then stop (no auto-restart)
-sudo systemctl kill -s INT --kill-who=main frameforge   # hard drain: abort chunk now (.part discarded next boot)
+ff status                 # units, cameras (alive from :9100), desired state, config hash
+ff logs -f                # live tail (-n 200 for history)
+ff restart                # finish current chunk (up to 1h), restart with config on disk
+ff stop                   # finish current chunk, then stop
+ff kill                   # SIGKILL now; current chunk discarded
+ff pause / ff resume      # stop or start, and record the intent in /var/lib/frameforge/desired.json
+ff cams                   # cameras on the switch vs cameras.yaml
+ff update [--ref main]    # pull + reinstall; restarts if running
+ff --json <verb>          # machine-readable
+```
+
+Equivalent systemctl, if `ff` is unavailable:
+
+```bash
+journalctl -u frameforge -f
+systemctl restart frameforge
+systemctl stop frameforge
+sudo systemctl kill -s SIGKILL frameforge
 ```
 
 ## Re-runs / updates

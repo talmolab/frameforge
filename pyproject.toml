@@ -1,3 +1,7 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "frameforge"
 version = "0.1.0"
@@ -30,6 +34,9 @@ dependencies = [
 "Bug Tracker" = "https://github.com/talmolab/frameforge/issues"
 "Source Code" = "https://github.com/talmolab/frameforge"
 
+[project.scripts]
+ff = "frameforge.commands.cli:main"
+
 [project.optional-dependencies]
 pylon = [
     "pypylon",
@@ -47,6 +54,9 @@ tools = [
 
 [tool.uv]
 python-preference = "only-managed"
+
+[tool.hatch.build.targets.wheel]
+packages = ["frameforge"]
 
 [tool.ruff]
 line-length = 88

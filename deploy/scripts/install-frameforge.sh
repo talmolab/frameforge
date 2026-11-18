@@ -63,6 +63,12 @@ UV_BIN="$(sudo -u "$FF_USER" -H bash -lc 'command -v uv' 2>/dev/null || true)"
 UV_BIN="${UV_BIN:-$(getent passwd "$FF_USER" | cut -d: -f6)/.local/bin/uv}"
 [ -x "$UV_BIN" ] || { echo "uv not found for $FF_USER; run bootstrap-box.sh first" >&2; exit 1; }
 sudo -u "$FF_USER" -H bash -c "cd '$FF_HOME' && '$UV_BIN' sync $extra_flags"
+# `ff` on every PATH: the venv script, run as root so systemctl and the journal work.
+cat >/usr/local/bin/ff <<EOF
+#!/usr/bin/env bash
+exec sudo -E env FF_HOME='$FF_HOME' '$FF_HOME/.venv/bin/ff' "\$@"
+EOF
+chmod 755 /usr/local/bin/ff
 
 # ----- 3. Frameforge runtime config (skip if present) -----
 echo "[3/7] Frameforge runtime config..."
