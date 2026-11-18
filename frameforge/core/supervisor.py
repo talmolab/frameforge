@@ -33,8 +33,10 @@ logger = logging.getLogger("frameforge.supervisor")
 
 _BACKOFF_CAP_SECONDS = 30
 _DRAIN_JOIN_SLACK_SECONDS = 100
+_HARD_DRAIN_SECONDS = 5
 _BROADCAST_RING_SLOTS = 24
-_FINAL_JOIN_SECONDS = 30
+_FINAL_JOIN_SECONDS = 10
+_KILL_JOIN_SECONDS = 2
 
 
 class Supervisor:
@@ -171,11 +173,14 @@ class Supervisor:
         #       hard_drain to everyone else.
         # Hard: hard_drain is already set; encoders bail mid-chunk (.part left
         #       on disk, discarded next boot). Everyone else is already exiting.
-        drain_join_seconds = (
-            self.context.config.encode.chunk_seconds + _DRAIN_JOIN_SLACK_SECONDS)
+        # Either way, anything still alive after the final join is killed so
+        # the supervisor never blocks at exit on a stuck worker.
         if self.context.hard_drain.is_set():
-            logger.info("hard drain: all workers exiting")
+            drain_join_seconds = _HARD_DRAIN_SECONDS
+            logger.info("hard drain: all workers exiting (up to %ds)", drain_join_seconds)
         else:
+            drain_join_seconds = (
+                self.context.config.encode.chunk_seconds + _DRAIN_JOIN_SLACK_SECONDS)
             logger.info("soft drain: encoders finalize (up to %ds)", drain_join_seconds)
         deadline = time.time() + drain_join_seconds
 
@@ -187,8 +192,17 @@ class Supervisor:
         self.context.hard_drain.set()
 
         for worker in self.workers:
-            if worker.process is not None and worker.alive():
+            if worker.alive():
                 worker.process.join(timeout=_FINAL_JOIN_SECONDS)
+
+        killed = []
+        for worker in self.workers:
+            if worker.alive():
+                worker.process.kill()
+                worker.process.join(timeout=_KILL_JOIN_SECONDS)
+                killed.append(worker.name)
+        if killed:
+            logger.warning("killed stuck workers: %s", ", ".join(killed))
 
         failures = [
             WorkerFailure(w.name, w.process.exitcode)

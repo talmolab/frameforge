@@ -3,7 +3,8 @@
 - Per-worker: worker_rss_mb{worker}, worker_cpu_user_seconds{worker}
   For enc: workers the ffmpeg child's CPU is added in, since that child (not
   the Python parent) is where the x264 work actually happens.
-- Host-level: host_mem_available_mb, host_load_avg_1m, host_cpu_busy_ratio
+- Host-level: host_mem_available_mb, host_load_avg_1m, host_cpu_busy_ratio,
+  host_temperature_celsius
 """
 
 import logging
@@ -15,6 +16,7 @@ from .defs import (
     host_cpu_busy_ratio,
     host_load_avg_1m,
     host_mem_available_mb,
+    host_temperature_celsius,
     worker_cpu_ratio,
     worker_cpu_user_seconds,
     worker_rss_mb,
@@ -24,6 +26,7 @@ from .defs import (
 _SAMPLE_INTERVAL_S = 2.0
 _CLOCK_TICKS_PER_S = os.sysconf("SC_CLK_TCK") if hasattr(os, "sysconf") else 100
 _BYTES_PER_MB = 1024 * 1024
+_THERMAL_DIR = "/sys/class/thermal"
 
 
 class HostSampler:
@@ -79,6 +82,10 @@ class HostSampler:
         load_1m = _read_load_avg_1m()
         if load_1m is not None:
             host_load_avg_1m.set(round(load_1m, 4))
+
+        temperature = _read_temperature_celsius()
+        if temperature is not None:
+            host_temperature_celsius.set(round(temperature, 1))
 
         cpu_ticks = _read_cpu_ticks()
         if cpu_ticks is not None:
@@ -150,6 +157,26 @@ def _read_load_avg_1m():
             return float(loadavg_file.read().split()[0])
     except (OSError, ValueError, IndexError):
         return None
+
+
+def _read_temperature_celsius(thermal_dir=_THERMAL_DIR):
+    """Hottest thermal zone in millidegrees -> degrees. None if the tree is absent."""
+    hottest = None
+    try:
+        zones = os.listdir(thermal_dir)
+    except OSError:
+        return None
+    for zone in zones:
+        if not zone.startswith("thermal_zone"):
+            continue
+        try:
+            with open(os.path.join(thermal_dir, zone, "temp")) as temp_file:
+                millidegrees = int(temp_file.read().strip())
+        except (OSError, ValueError):
+            continue
+        if hottest is None or millidegrees > hottest:
+            hottest = millidegrees
+    return None if hottest is None else hottest / 1000.0
 
 
 def _read_cpu_ticks():

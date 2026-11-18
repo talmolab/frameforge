@@ -120,3 +120,7 @@ host_cpu_busy_ratio = Gauge(
     "host_cpu_busy_ratio",
     "Whole-machine CPU busy fraction (0-1) over last sample interval",
     multiprocess_mode="mostrecent")
+host_temperature_celsius = Gauge(
+    "host_temperature_celsius",
+    "Package temperature from /sys/class/thermal (hottest zone)",
+    multiprocess_mode="mostrecent")

@@ -135,13 +135,15 @@ datasources:
     isDefault: true
 EOF
 
-# Anonymous viewer access so dashboard deep-links open with no login.
+# Anonymous viewer access so dashboard deep-links open with no login, and
+# embedding so the hub can iframe panels (Grafana sends X-Frame-Options: deny otherwise).
 # Env drop-in (not grafana.ini) so an apt upgrade can't clobber it.
 install -d /etc/systemd/system/grafana-server.service.d
 cat >/etc/systemd/system/grafana-server.service.d/10-frameforge-anon.conf <<'EOF'
 [Service]
 Environment=GF_AUTH_ANONYMOUS_ENABLED=true
 Environment=GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+Environment=GF_SECURITY_ALLOW_EMBEDDING=true
 EOF
 
 # ----- 7. Enable + reload + start -----
