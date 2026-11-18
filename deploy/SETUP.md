@@ -62,6 +62,24 @@ Browser (lab LAN):
 - `http://lab-rig01.local:8888` — mediamtx web UI, pick a cam to watch live
 - `<root>/_ff_heartbeat/<hostname>.json` on storage — heartbeat; point the fleet console at that folder
 
+## Install stick
+
+One stick installs any box. Build it once on a Mac (`brew install gptfdisk` first):
+
+```bash
+sudo ./deploy/scripts/make-stick.sh ~/Downloads/ubuntu-24.04.1-live-server-amd64.iso /dev/diskN
+```
+
+`diskutil list` shows the stick; check the size column. The script writes the stock Ubuntu
+Server ISO, then adds a `CIDATA` partition with `deploy/autoinstall/user-data`, which the
+installer picks up on its own: whole NVMe, `talmolab` user, git, uv, the frameforge checkout at
+`/usr/local/lib/frameforge`, `ff` on PATH, NVMe first in boot order, power off when done.
+
+On the MS-01: plug the uplink RJ45 and the stick, cold boot, F7, pick the USB entry, walk away.
+When the box is off, pull the stick and power on. tty1 logs `talmolab` in and starts
+`sudo ff setup`; its first question sets the password, after which the auto-login is removed.
+Rebuild the stick only when `user-data` changes.
+
 ## Setup
 
 Two modes, both re-runnable:

@@ -1,0 +1,60 @@
+#cloud-config
+# Ubuntu Server 24.04 autoinstall for a frameforge box. Read from a CIDATA partition
+# on the install stick (deploy/scripts/make-stick.sh). Whole NVMe, no prompts,
+# powers off when done. First console boot auto-logs in and runs `sudo ff setup`.
+autoinstall:
+  version: 1
+  locale: en_US.UTF-8
+  keyboard:
+    layout: us
+  refresh-installer:
+    update: false
+  source:
+    id: ubuntu-server-minimal
+  network:
+    version: 2
+    ethernets:
+      uplink:
+        match:
+          name: "en*"
+        dhcp4: true
+        optional: true
+  storage:
+    layout:
+      name: direct
+      match:
+        size: largest
+  ssh:
+    install-server: true
+    allow-pw: true
+  packages:
+    - git
+    - curl
+    - ca-certificates
+    - efibootmgr
+  user-data:
+    hostname: frameforge-new
+    users:
+      - name: talmolab
+        groups: [sudo, video, render]
+        shell: /bin/bash
+        lock_passwd: true
+  updates: security
+  late-commands:
+    # frameforge checkout, owned by the service user, where install-frameforge.sh expects it
+    - curtin in-target -- mkdir -p /usr/local/lib
+    - curtin in-target -- git clone https://github.com/talmolab/frameforge.git /usr/local/lib/frameforge
+    - curtin in-target -- chown -R talmolab:talmolab /usr/local/lib/frameforge
+    # uv + venv so `ff` exists before any network-dependent step on the box
+    - curtin in-target -- sudo -u talmolab -H sh -c 'curl -LsSf https://astral.sh/uv/install.sh | sh'
+    - curtin in-target -- sudo -u talmolab -H sh -c 'cd /usr/local/lib/frameforge && ~/.local/bin/uv sync --extra pylon'
+    - curtin in-target -- sh -c 'printf "#!/usr/bin/env bash\nexec sudo -E env FF_HOME=/usr/local/lib/frameforge /usr/local/lib/frameforge/.venv/bin/ff \"\$@\"\n" > /usr/local/bin/ff && chmod 755 /usr/local/bin/ff'
+    # first boot only: tty1 logs talmolab in and runs setup; setup removes all three files
+    - curtin in-target -- sh -c 'printf "talmolab ALL=(ALL) NOPASSWD:ALL\n" > /etc/sudoers.d/90-frameforge-firstboot && chmod 440 /etc/sudoers.d/90-frameforge-firstboot'
+    - curtin in-target -- mkdir -p /etc/systemd/system/getty@tty1.service.d
+    - curtin in-target -- sh -c 'printf "[Service]\nExecStart=\nExecStart=-/sbin/agetty --autologin talmolab --noclear %%I \$TERM\n" > /etc/systemd/system/getty@tty1.service.d/frameforge-firstboot.conf'
+    - curtin in-target -- sh -c 'printf "if [ \"\$(tty)\" = /dev/tty1 ] && [ -f /etc/sudoers.d/90-frameforge-firstboot ]; then sudo ff setup; fi\n" > /etc/profile.d/frameforge-firstboot.sh'
+    - curtin in-target -- sh -c 'printf "frameforge box, not configured yet. Run  sudo ff setup\n" > /etc/motd'
+    # boot the NVMe first from now on; the stick never needs F7 again
+    - curtin in-target -- sh -c 'u=$(efibootmgr | awk "/ubuntu/ {print substr(\$1,5,4); exit}"); o=$(efibootmgr | awk "/BootOrder/ {print \$2}"); [ -n "$u" ] && efibootmgr -o "$u,$(echo "$o" | sed "s/$u,\\{0,1\\}//;s/,$//")" || true'
+  shutdown: poweroff
