@@ -1,13 +1,19 @@
-"""The one place that shells out to systemd and the journal, so Node stays testable."""
+"""The one place that shells out to systemd and the journal, so handlers stay testable.
+A box without systemd reports "unknown" and failed actions rather than crashing."""
 
 import subprocess
 from collections.abc import Iterator
 
+_TRANSIENT = ("start", "stop", "restart")
+
 
 class SystemAdapter:
     def is_active(self, unit: str) -> str:
-        result = subprocess.run(
-            ["systemctl", "is-active", unit], capture_output=True, text=True)
+        try:
+            result = subprocess.run(
+                ["systemctl", "is-active", unit], capture_output=True, text=True)
+        except OSError:
+            return "unknown"
         return result.stdout.strip() or "unknown"
 
     def start(self, unit: str) -> tuple[int, str]:
@@ -23,11 +29,15 @@ class SystemAdapter:
         return self._ctl("kill", "-s", sig, unit)
 
     def journal(self, unit: str, lines: int, follow: bool) -> Iterator[str]:
-        cmd = ["journalctl", "-u", unit, "-n", str(lines), "-o", "short-iso", "--no-pager"]
+        command = ["journalctl", "-u", unit, "-n", str(lines), "-o", "short-iso", "--no-pager"]
         if follow:
-            cmd.append("-f")
-        process = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+            command.append("-f")
+        try:
+            process = subprocess.Popen(
+                command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+        except OSError as error:
+            yield f"journalctl unavailable: {error}"
+            return
         try:
             for line in process.stdout:
                 yield line.rstrip("\n")
@@ -39,8 +49,9 @@ class SystemAdapter:
                 process.kill()
 
     def _ctl(self, *args: str) -> tuple[int, str]:
-        result = subprocess.run(
-            ["systemctl", "--no-block", *args] if args[0] in ("start", "stop", "restart")
-            else ["systemctl", *args],
-            capture_output=True, text=True)
+        command = ["systemctl", *(["--no-block"] if args[0] in _TRANSIENT else []), *args]
+        try:
+            result = subprocess.run(command, capture_output=True, text=True)
+        except OSError as error:
+            return 1, f"systemctl unavailable: {error}"
         return result.returncode, (result.stdout + result.stderr).strip()

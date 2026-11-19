@@ -35,7 +35,7 @@ dependencies = [
 "Source Code" = "https://github.com/talmolab/frameforge"
 
 [project.scripts]
-ff = "frameforge.commands.cli:main"
+ff = "frameforge.entrypoint.cli:main"
 
 [project.optional-dependencies]
 pylon = [

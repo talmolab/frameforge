@@ -13,6 +13,7 @@ import yaml
 
 from ..core.paths import CAMERAS_FILE, DESIRED_FILE, TENANT_FILE
 from .flows import Prompter, Question, collect
+from .handlers import write_desired
 from .setup import EXAMPLE_TENANT, SECRETS_FILE, SERVICE_USER, run_box_scripts, write_text, write_yaml
 from .types import ActionResult
 
@@ -59,7 +60,7 @@ def run(node, prompter: Prompter) -> ActionResult:
     if not os.path.exists(CAMERAS_FILE):
         write_yaml(CAMERAS_FILE, {"cameras": []})
     if not os.path.exists(DESIRED_FILE):
-        node.set_desired()
+        write_desired()
 
     from ..config import load_tenant_config
     try:

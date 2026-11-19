@@ -14,6 +14,7 @@ from .config import load_config
 from .core.logging_setup import setup_logging
 from .core.paths import SCRATCH_DIR
 from .core.supervisor import Supervisor
+from .entrypoint import document
 
 logger = logging.getLogger("frameforge.bootstrap")
 
@@ -68,6 +69,7 @@ def main() -> None:
     multiprocessing.set_start_method("fork", force=True)
     config = load_config()
     setup_logging()
+    document.record_applied()
 
     _prepare_prom_dir()
     _prune_scratch_orphans()

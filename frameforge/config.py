@@ -21,6 +21,11 @@ from .sources import validate_source
 from .storage import validate_storage
 
 
+def _doc(default, text: str):
+    """A field with a one-line description, surfaced by `ff config_schema` and the hub."""
+    return field(default=default, metadata={"doc": text})
+
+
 @dataclass(slots=True)
 class CameraCfg:
     id: str
@@ -30,38 +35,38 @@ class CameraCfg:
 
 @dataclass(slots=True)
 class AcqCfg:
-    width: int = 1280
-    height: int = 1024
-    channels: int = 1
-    ring_slots: int = 128
-    jumbo_frames: bool = False
-    gige_subnet: str = "192.168.10"
+    width: int = _doc(1280, "frame width, pixels")
+    height: int = _doc(1024, "frame height, pixels")
+    channels: int = _doc(1, "1 for mono, 3 for color")
+    ring_slots: int = _doc(128, "frames buffered between camera and encoder")
+    jumbo_frames: bool = _doc(False, "9000-byte packets; the switch must match")
+    gige_subnet: str = _doc("192.168.10", "camera subnet; cam_0N is assigned .10N")
 
 
 @dataclass(slots=True)
 class EncodeCfg:
-    fps: float = 50.0
-    gop: int = 250
-    crf: int = 23
-    preset: str = "superfast"
-    bframes: int = 0
-    denoise: bool = True
-    noise_reduction: int = 0
-    chunk_seconds: int = 3600
-    timezone: str = ""
+    fps: float = _doc(50.0, "frames per second")
+    gop: int = _doc(250, "frames between keyframes; longer = smaller files, coarser seeking")
+    crf: int = _doc(23, "quality; lower = better and larger")
+    preset: str = _doc("superfast", "x264 speed/size tradeoff, ultrafast to slow")
+    bframes: int = _doc(0, "bidirectional frames; 0 disables")
+    denoise: bool = _doc(True, "temporal denoise before encoding")
+    noise_reduction: int = _doc(0, "x264 nr strength; 0 disables")
+    chunk_seconds: int = _doc(3600, "seconds of video per file")
+    timezone: str = _doc("", "clock for chunk folder names; empty = box timezone")
 
 
 @dataclass(slots=True)
 class StorageCfg:
-    kind: str = ""
-    options: dict = field(default_factory=dict)
+    kind: str = _doc("", "smb or s3")
+    options: dict = field(default_factory=dict, metadata={"doc": "backend keys: server/share/root or bucket/prefix"})
 
 
 @dataclass(slots=True)
 class TransferCfg:
     storage: StorageCfg = field(default_factory=StorageCfg)
-    low_disk_threshold_mb: int = 500
-    analytics: bool = False
+    low_disk_threshold_mb: int = _doc(500, "scratch free space that raises the low-disk alarm")
+    analytics: bool = _doc(False, "log per-chunk size and frame stats on upload")
 
 
 @dataclass(slots=True)
@@ -80,8 +85,8 @@ class Config:
     acq: AcqCfg = field(default_factory=AcqCfg)
     transfer: TransferCfg = field(default_factory=TransferCfg)
     broadcast: BroadcastCfg = field(default_factory=BroadcastCfg)
-    session_name: str = ""
-    session_postfix: str = ""
+    session_name: str = _doc("", "recording folder name; empty = start date")
+    session_postfix: str = _doc("", "appended to a date-based session name")
 
     def validate(self) -> None:
         if not self.cameras:
@@ -175,10 +180,18 @@ def _build(tenant: dict, cameras: list[CameraCfg], hardware_name: str) -> Config
     )
 
 
-def load_config() -> Config:
-    hardware_name = _env("FF_HARDWARE") or HardwareClass.GENERIC.value
+def hardware_name() -> str:
+    return _env("FF_HARDWARE") or HardwareClass.GENERIC.value
 
-    config = _build(_read_tenant(), _load_cameras(), hardware_name)
+
+def build_config(tenant: dict, cameras: list[dict], hardware: str | None = None) -> Config:
+    """Config from raw YAML structures. The entrypoint validates posted documents through it."""
+    return _build(tenant, [_camera_from_raw(camera) for camera in cameras],
+                  hardware or hardware_name())
+
+
+def load_config() -> Config:
+    config = _build(_read_tenant(), _load_cameras(), hardware_name())
     config.validate()
     return config
 
