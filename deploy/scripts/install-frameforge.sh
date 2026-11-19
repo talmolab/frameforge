@@ -66,9 +66,14 @@ sudo -u "$FF_USER" -H bash -c "cd '$FF_HOME' && '$UV_BIN' sync $extra_flags"
 # `ff` on every PATH: the venv script, run as root so systemctl and the journal work.
 cat >/usr/local/bin/ff <<EOF
 #!/usr/bin/env bash
-exec sudo -E env FF_HOME='$FF_HOME' '$FF_HOME/.venv/bin/ff' "\$@"
+exec sudo env FF_HOME='$FF_HOME' '$FF_HOME/.venv/bin/ff' "\$@"
 EOF
 chmod 755 /usr/local/bin/ff
+
+# State dir is shared: frameforge (service user) writes session + applied config,
+# ff serve (root) writes desired state + config versions. The user must own the dir.
+install -d -m 775 -o "$FF_USER" -g "$FF_USER" /var/lib/frameforge
+chown "$FF_USER:$FF_USER" /var/lib/frameforge/*.json 2>/dev/null || true
 
 # ----- 3. Frameforge runtime config (skip if present) -----
 echo "[3/7] Frameforge runtime config..."

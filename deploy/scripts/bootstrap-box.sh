@@ -156,6 +156,7 @@ usermod -aG sudo,video,render "$FF_USER"
 # ----- 6. System dirs (owned by service user) -----
 echo "[6/10] Creating system dirs..."
 install -d -m 755 -o "$FF_USER" -g "$FF_USER" /usr/local/lib/frameforge
+install -d -m 775 -o "$FF_USER" -g "$FF_USER" /var/lib/frameforge
 install -d -m 755 -o "$FF_USER" -g "$FF_USER" /var/lib/frameforge/scratch
 install -d -m 755 -o root -g root /etc/frameforge
 

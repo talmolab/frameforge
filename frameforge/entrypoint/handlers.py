@@ -186,8 +186,9 @@ def secret(key: str) -> str:
 
 
 def git_sha() -> str:
-    result = subprocess.run(["git", "-C", HOME_DIR, "rev-parse", "--short", "HEAD"],
-                            capture_output=True, text=True)
+    result = subprocess.run(
+        ["git", "-c", f"safe.directory={HOME_DIR}", "-C", HOME_DIR, "rev-parse", "--short", "HEAD"],
+        capture_output=True, text=True)
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
