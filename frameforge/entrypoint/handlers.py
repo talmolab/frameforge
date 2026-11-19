@@ -9,15 +9,17 @@ import shutil
 import socket
 import subprocess
 import tempfile
+import time
 import urllib.request
 from collections.abc import Iterator
 
+from ..core import session
 from ..core.paths import DESIRED_FILE, HOME_DIR
 from . import document as store
 from .setup import SECRETS_FILE, read_cameras
 from .system import SystemAdapter
 from .types import (ActionResult, CameraState, ConfigDocument, ConfigField, DesiredState,
-                    DiscoveredCamera, Status, StreamUrl)
+                    DiscoveredCamera, Session, Status, StreamUrl)
 from .verbs import Arg, verb
 
 UNIT = "frameforge"
@@ -37,10 +39,11 @@ class Monitor:
         alive = metrics.get("acq_camera_alive", {})
         return Status(
             hostname=socket.gethostname(),
-            device_id=_secret("FF_DEVICE_ID"),
-            frameforge_sha=_git_sha(),
+            device_id=secret("FF_DEVICE_ID"),
+            frameforge_sha=git_sha(),
             units={unit: self.system.is_active(unit) for unit in UNITS},
             uptime_s=metrics.get("frameforge_uptime_seconds", {}).get(""),
+            session=read_session(),
             desired=read_desired(),
             config=store.state(),
             cameras=[CameraState(id=cam["id"], serial=str(cam.get("serial", "")),
@@ -140,6 +143,13 @@ class Configure:
         return store.write(document.get("tenant", {}), document.get("cameras", []), if_version)
 
 
+def read_session() -> Session:
+    current = session.read()
+    if current is None:
+        return Session(None, None, None)
+    return Session(current["name"], current["started"], time.time() - current["started"])
+
+
 def read_desired() -> DesiredState:
     try:
         with open(DESIRED_FILE) as raw:
@@ -163,7 +173,7 @@ def _result(name: str, outcome: tuple[int, str]) -> ActionResult:
     return ActionResult(name, returncode == 0, output)
 
 
-def _secret(key: str) -> str:
+def secret(key: str) -> str:
     try:
         with open(SECRETS_FILE) as raw:
             for line in raw:
@@ -175,7 +185,7 @@ def _secret(key: str) -> str:
     return ""
 
 
-def _git_sha() -> str:
+def git_sha() -> str:
     result = subprocess.run(["git", "-C", HOME_DIR, "rev-parse", "--short", "HEAD"],
                             capture_output=True, text=True)
     return result.stdout.strip() if result.returncode == 0 else ""

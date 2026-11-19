@@ -1,0 +1,16 @@
+[Unit]
+Description=frameforge management server (ff serve)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=FF_HOME=/usr/local/lib/frameforge
+Environment=FF_HARDWARE=ms01
+WorkingDirectory=/usr/local/lib/frameforge
+ExecStart=/usr/local/lib/frameforge/.venv/bin/ff serve
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 
 from prometheus_client import multiprocess
 
+from . import session
 from .shm_ring import FrameRing
 from ..config import Config
 from ..context import Context
@@ -58,7 +59,9 @@ class Supervisor:
         self._frame_rings: list[FrameRing] = []
         self._worker_pids = self._manager.dict()
 
-        logger.info("session=%s", session_name)
+        started = session.begin(session_name)
+        logger.info("session=%s started=%s", session_name,
+                    datetime.datetime.fromtimestamp(started).isoformat(timespec="seconds"))
 
     def build(self) -> None:
         config = self.config

@@ -1,6 +1,7 @@
-"""Rig heartbeat: publish {hostname, ip, timestamp} under <root>/_ff_heartbeat/
-so the fleet console can find the box. Run by heartbeat.timer."""
+"""Rig heartbeat: publish a ``Heartbeat`` record under <root>/_ff_heartbeat/ so the
+hub can find, register and reach the box. Run hourly by heartbeat.timer."""
 
+import dataclasses
 import datetime
 import json
 import logging
@@ -13,6 +14,10 @@ import time
 
 from .config import load_tenant_config
 from .core.logging_setup import setup_logging
+from .entrypoint import document
+from .entrypoint.handlers import git_sha, read_desired, read_session, secret
+from .entrypoint.server import DEFAULT_PORT
+from .entrypoint.types import Heartbeat
 from .storage import make_storage
 
 _HEARTBEAT_DIR = "_ff_heartbeat"
@@ -36,6 +41,23 @@ def _uplink_ip(exclude_prefix: str) -> str | None:
     return None
 
 
+def build(hostname: str, ip: str) -> Heartbeat:
+    state = document.state()
+    return Heartbeat(
+        hostname=hostname,
+        ip=ip,
+        port=int(os.environ.get("FF_SERVE_PORT", DEFAULT_PORT)),
+        device_id=secret("FF_DEVICE_ID"),
+        token=secret("FF_TOKEN"),
+        timestamp=datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
+        frameforge_sha=git_sha(),
+        config_version=state.version,
+        config_version_applied=state.version_applied,
+        paused=read_desired().paused,
+        session=read_session(),
+    )
+
+
 def _write_heartbeat(storage, hostname: str, exclude_prefix: str) -> bool:
     ip = _uplink_ip(exclude_prefix)
     if ip is None:
@@ -44,13 +66,8 @@ def _write_heartbeat(storage, hostname: str, exclude_prefix: str) -> bool:
     if not storage.ensure_open():
         return False
 
-    payload = {
-        "hostname": hostname,
-        "ip": ip,
-        "timestamp": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
-    }
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tmp:
-        json.dump(payload, tmp)
+        json.dump(dataclasses.asdict(build(hostname, ip)), tmp, indent=1)
         tmp.write("\n")
         tmp_path = tmp.name
 

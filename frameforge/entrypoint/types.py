@@ -24,6 +24,14 @@ class ConfigState:
 
 
 @dataclasses.dataclass(frozen=True)
+class Session:
+    """started is epoch seconds; both are None before the first recording."""
+    name: str | None
+    started: float | None
+    uptime_s: float | None
+
+
+@dataclasses.dataclass(frozen=True)
 class CameraState:
     """alive is None when the metrics endpoint is unreachable."""
     id: str
@@ -76,9 +84,27 @@ class Status:
     frameforge_sha: str
     units: dict
     uptime_s: float | None
+    session: Session
     desired: DesiredState
     config: ConfigState
     cameras: list
+
+
+@dataclasses.dataclass(frozen=True)
+class Heartbeat:
+    """Written hourly to <root>/_ff_heartbeat/<hostname>.json; the hub's registry
+    record for a node. The token authorises the hub's writes to that node."""
+    hostname: str
+    ip: str
+    port: int
+    device_id: str
+    token: str
+    timestamp: str
+    frameforge_sha: str
+    config_version: int
+    config_version_applied: int | None
+    paused: bool
+    session: Session
 
 
 @dataclasses.dataclass(frozen=True)
@@ -89,11 +115,14 @@ class ActionResult:
 
 
 TYPES = {cls.__name__: cls for cls in (
-    DesiredState, ConfigState, CameraState, DiscoveredCamera, StreamUrl, ConfigField,
-    ConfigDocument, Status, ActionResult)}
+    DesiredState, ConfigState, Session, CameraState, DiscoveredCamera, StreamUrl,
+    ConfigField, ConfigDocument, Status, Heartbeat, ActionResult)}
 
-_NESTED = {"Status": {"desired": "DesiredState", "config": "ConfigState",
-                      "cameras": "list[CameraState]"}}
+_NESTED = {
+    "Status": {"session": "Session", "desired": "DesiredState", "config": "ConfigState",
+               "cameras": "list[CameraState]"},
+    "Heartbeat": {"session": "Session"},
+}
 
 
 def decode(returns: str, data):

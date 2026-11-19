@@ -30,6 +30,10 @@ def _build_parser() -> argparse.ArgumentParser:
     setup = sub.add_parser("setup", help="desk: configure a fresh box; rack: assign cameras")
     setup.add_argument("--mode", choices=("desk", "rack"), default="desk")
     setup.add_argument("--yes", action="store_true", help="skip confirmations")
+
+    serve = sub.add_parser("serve", help="management server for the hub (ff-serve.service)")
+    serve.add_argument("--port", type=int, default=8080)
+    serve.add_argument("--bind", default="0.0.0.0")
     return parser
 
 
@@ -63,8 +67,16 @@ def _render(value, indent: int = 0) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
-    node = Node()
 
+    if args.command == "serve":
+        from ..core.logging_setup import setup_logging
+        from .server import serve
+
+        setup_logging()
+        serve(port=args.port, bind=args.bind)
+        return 0
+
+    node = Node()
     if args.command == "setup":
         outcome = node.setup(mode=args.mode, yes=args.yes)
     else:

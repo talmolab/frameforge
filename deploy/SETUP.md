@@ -30,7 +30,7 @@ Also writes a DHCP stanza for the uplink NIC (`UPLINK_IFACE`, default: the NIC h
 sudo ./deploy/scripts/install-frameforge.sh
 ```
 
-Does: git clone/pull, `uv sync --extra pylon` venv (pypylon is an optional extra; Basler cameras need it; override with `FF_EXTRAS="pylon s3"` for S3 storage), systemd unit installs (frameforge + mediamtx + heartbeat), prometheus.yml, Grafana datasource + dashboard provisioning. Copies `config/tenants/example.yaml`, `config/cameras.example.yaml`, and a `secrets.env` stub into `/etc/frameforge/` when missing. Refuses to start frameforge while any of the three still carries example placeholders.
+Does: git clone/pull, `uv sync --extra pylon` venv (pypylon is an optional extra; Basler cameras need it; override with `FF_EXTRAS="pylon s3"` for S3 storage), systemd unit installs (frameforge + mediamtx + heartbeat + ff-serve), prometheus.yml, Grafana datasource + dashboard provisioning. Copies `config/tenants/example.yaml`, `config/cameras.example.yaml`, and a `secrets.env` stub into `/etc/frameforge/` when missing. Refuses to start frameforge while any of the three still carries example placeholders.
 
 ## 3. Per-rig configs
 
@@ -60,7 +60,8 @@ ssh talmolab@lab-rig01.local             # mDNS access from lab LAN
 Browser (lab LAN):
 - `http://lab-rig01.local:3000` — Grafana (default admin / admin)
 - `http://lab-rig01.local:8888` — mediamtx web UI, pick a cam to watch live
-- `<root>/_ff_heartbeat/<hostname>.json` on storage — heartbeat; point the fleet console at that folder
+- `<root>/_ff_heartbeat/<hostname>.json` on storage — heartbeat (address, port, token, versions, session); the hub's registry record, and what the fleet console reads
+- `http://lab-rig01:8080/api/status` — `ff serve`, the management API; writes need the `X-FF-Token` header with `FF_TOKEN` from secrets.env
 
 ## Install stick
 
@@ -113,7 +114,11 @@ ff pause / ff resume      # stop or start, and record the intent in /var/lib/fra
 ff cams                   # cameras on the switch vs cameras.yaml
 ff update [--ref main]    # pull + reinstall; restarts if running
 ff --json <verb>          # machine-readable
+ff serve                  # what ff-serve.service runs: the same verbs over HTTP on :8080
 ```
+
+Session uptime (`ff status`, `frameforge_session_uptime_seconds`) counts from the first start
+under the current session name and survives restarts; it resets only when the name changes.
 
 Equivalent systemctl, if `ff` is unavailable:
 

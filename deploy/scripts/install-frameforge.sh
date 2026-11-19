@@ -103,6 +103,7 @@ sed -e "s/^User=.*/User=$FF_USER/" -e "s/^Group=.*/Group=$FF_USER/" \
     "$DEPLOY_DIR/systemd/frameforge.service" >/etc/systemd/system/frameforge.service
 cp "$DEPLOY_DIR/systemd/heartbeat.service" /etc/systemd/system/heartbeat.service
 cp "$DEPLOY_DIR/systemd/heartbeat.timer" /etc/systemd/system/heartbeat.timer
+cp "$DEPLOY_DIR/systemd/ff-serve.service" /etc/systemd/system/ff-serve.service
 
 if command -v mediamtx >/dev/null; then
     cp "$DEPLOY_DIR/systemd/mediamtx.service" /etc/systemd/system/mediamtx.service
@@ -165,6 +166,8 @@ if command -v mediamtx >/dev/null; then
 fi
 systemctl enable heartbeat.timer
 systemctl start heartbeat.timer
+systemctl enable ff-serve.service
+systemctl restart ff-serve.service
 
 # Refuse to start while any config still carries example placeholders.
 placeholders=""
@@ -189,6 +192,7 @@ echo "=== install-frameforge.sh complete ==="
 echo "Verify:"
 echo "  systemctl status frameforge          # main service"
 echo "  systemctl status heartbeat.timer     # storage heartbeat"
+echo "  curl localhost:8080/api/status       # management server (ff serve)"
 echo "  journalctl -u frameforge -f          # live tail"
 echo "  curl localhost:9100/metrics | head   # frameforge metrics exposed"
 echo "  open http://<host>:3000              # Grafana (default admin/admin)"

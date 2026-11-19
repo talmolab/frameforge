@@ -164,10 +164,12 @@ sudo systemctl kill -s SIGINT frameforge      # hard drain: abort chunk now
 ```
 
 Dashboards: Grafana on `:3000`, raw metrics on `:9100`, live camera view via mediamtx on
-`:8889`. Each rig also publishes a heartbeat to `<root>/_ff_heartbeat/<hostname>.json`;
-serve [tools/](tools/) with `npx serve -p 8080 tools` and point the console at that folder for
-a fleet-wide view. `tools/calibrator.py` gives a live focus and exposure readout for lens
-tuning.
+`:8889`. `ff serve` on `:8080` is the management API a hub drives (status, control, config,
+setup); `frameforge.entrypoint.client` is the Python client for it. Each rig publishes a
+heartbeat to `<root>/_ff_heartbeat/<hostname>.json` with its address, token and versions, so
+a hub registers nodes from that folder alone. Serve [tools/](tools/) with
+`npx serve -p 8080 tools` for the static fleet console; `tools/calibrator.py` gives a live focus
+and exposure readout for lens tuning.
 
 ## Issues & Support
 

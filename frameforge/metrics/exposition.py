@@ -19,10 +19,12 @@ from prometheus_client.multiprocess import MultiProcessCollector
 
 from .. import __version__
 from ..context import Context
+from ..core import session
 
 
 _BUILD_INFO = "frameforge_build_info"
 _UPTIME_SECONDS = "frameforge_uptime_seconds"
+_SESSION_UPTIME_SECONDS = "frameforge_session_uptime_seconds"
 
 _METRICS_PORT = 9100
 
@@ -63,3 +65,11 @@ class _MetaCollector:
             _UPTIME_SECONDS, "Seconds since the metrics exporter started")
         uptime.add_metric([], time.monotonic() - self._started_at_monotonic)
         yield uptime
+
+        current = session.read()
+        if current is not None:
+            session_uptime = GaugeMetricFamily(
+                _SESSION_UPTIME_SECONDS, "Seconds since the current session began",
+                labels=["session"])
+            session_uptime.add_metric([current["name"]], time.time() - current["started"])
+            yield session_uptime
