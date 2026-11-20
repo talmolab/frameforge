@@ -55,6 +55,7 @@ fi
 cd "$FF_HOME"
 sudo -u "$FF_USER" git fetch -q --all --tags --prune
 sudo -u "$FF_USER" git reset -q --hard
+sudo -u "$FF_USER" git clean -q -fd -e .venv
 if sudo -u "$FF_USER" git rev-parse -q --verify "origin/$GIT_REF" >/dev/null; then
     sudo -u "$FF_USER" git checkout -q -B "$GIT_REF" "origin/$GIT_REF"
 else
