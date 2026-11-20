@@ -6,7 +6,10 @@
 # exist where appropriate (tenant.yaml, cameras.yaml, secrets.env).
 #
 # Usage (run as root, from repo root):
-#   sudo GIT_REF=main ./deploy/scripts/install-frameforge.sh
+#   sudo GIT_REF=main ./deploy/scripts/install-frameforge.sh [--venv-only]
+#
+# --venv-only stops after the venv and the `ff` wrapper: what a fresh box needs
+# before `ff setup` can run bootstrap and then this script in full.
 #
 # Env:
 #   GIT_REF   — branch / tag / commit to deploy (default: main)
@@ -17,6 +20,14 @@
 set -euo pipefail
 
 [ "$(id -u)" -eq 0 ] || { echo "run as root (sudo)" >&2; exit 1; }
+
+VENV_ONLY=false
+for arg in "$@"; do
+    case "$arg" in
+        --venv-only) VENV_ONLY=true ;;
+        *) echo "Unknown arg: $arg" >&2; exit 1 ;;
+    esac
+done
 
 GIT_REF="${GIT_REF:-main}"
 GIT_REMOTE="${GIT_REMOTE:-https://github.com/talmolab/frameforge.git}"
@@ -78,6 +89,13 @@ chmod 755 /usr/local/bin/ff
 # ff serve (root) writes desired state + config versions. The user must own the dir.
 install -d -m 775 -o "$FF_USER" -g "$FF_USER" /var/lib/frameforge
 chown "$FF_USER:$FF_USER" /var/lib/frameforge/*.json 2>/dev/null || true
+
+if [ "$VENV_ONLY" = "true" ]; then
+    echo
+    echo "=== venv ready ==="
+    echo "Next: sudo ff setup"
+    exit 0
+fi
 
 # ----- 3. Frameforge runtime config (skip if present) -----
 echo "[3/7] Frameforge runtime config..."
@@ -183,6 +201,7 @@ placeholders=""
 grep -q changeme /etc/frameforge/secrets.env && placeholders="$placeholders secrets.env"
 grep -q storage.example.org /etc/frameforge/tenant.yaml && placeholders="$placeholders tenant.yaml"
 grep -Eq '2345678|2345679' /etc/frameforge/cameras.yaml && placeholders="$placeholders cameras.yaml"
+grep -q 'serial' /etc/frameforge/cameras.yaml || placeholders="$placeholders cameras.yaml(no cameras; run ff setup --mode rack)"
 
 if [ -n "$placeholders" ]; then
     echo "  Not starting frameforge: placeholders left in$placeholders."

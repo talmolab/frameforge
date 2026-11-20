@@ -1,7 +1,12 @@
 #cloud-config
 # Ubuntu Server 24.04 autoinstall for a frameforge box. Read from a CIDATA partition
-# on the install stick (deploy/scripts/make-stick.sh). Whole NVMe, no prompts,
-# powers off when done. First console boot auto-logs in and runs `sudo ff setup`.
+# on the install stick (deploy/scripts/make-stick.sh). Whole NVMe, one yes/no prompt,
+# powers off when done. First console boot auto-logs in, builds the venv, runs setup.
+#
+# Users from `identity` or `user-data` are created by cloud-init on FIRST BOOT, not
+# during install, so late-commands create talmolab themselves. Network inside the
+# target during late-commands is only what curtin lends it; nothing here downloads
+# except the clone. uv, the venv and apt all happen on first boot.
 autoinstall:
   version: 1
   locale: en_US.UTF-8
@@ -11,14 +16,6 @@ autoinstall:
     update: false
   source:
     id: ubuntu-server-minimal
-  network:
-    version: 2
-    ethernets:
-      uplink:
-        match:
-          name: "en*"
-        dhcp4: true
-        optional: true
   storage:
     layout:
       name: direct
@@ -32,23 +29,24 @@ autoinstall:
     - curl
     - ca-certificates
     - efibootmgr
+    - software-properties-common
   user-data:
     hostname: frameforge-new
+    users:
+      - name: talmolab
+        groups: [sudo, video]
+        shell: /bin/bash
+        lock_passwd: true
   updates: security
   late-commands:
-    # The target has no network during late-commands; everything that downloads
-    # (uv, venv, apt) runs on first boot via the installer. The stick only clones.
-    # The user is created here, not via cloud-init, so it exists for the chown.
-    - curtin in-target -- useradd -m -s /bin/bash -G sudo,video,render talmolab
+    - curtin in-target -- sh -c 'id talmolab >/dev/null 2>&1 || useradd -m -s /bin/bash -G sudo,video talmolab'
     - curtin in-target -- mkdir -p /usr/local/lib
     - curtin in-target -- git clone https://github.com/talmolab/frameforge.git /usr/local/lib/frameforge
     - curtin in-target -- chown -R talmolab:talmolab /usr/local/lib/frameforge
-    # first boot only: tty1 logs talmolab in, installs, runs setup; setup removes all three files
     - curtin in-target -- sh -c 'printf "talmolab ALL=(ALL) NOPASSWD:ALL\n" > /etc/sudoers.d/90-frameforge-firstboot && chmod 440 /etc/sudoers.d/90-frameforge-firstboot'
     - curtin in-target -- mkdir -p /etc/systemd/system/getty@tty1.service.d
     - curtin in-target -- sh -c 'printf "[Service]\nExecStart=\nExecStart=-/sbin/agetty --autologin talmolab --noclear %%I \$TERM\n" > /etc/systemd/system/getty@tty1.service.d/frameforge-firstboot.conf'
-    - curtin in-target -- sh -c 'printf "if [ \"\$(tty)\" = /dev/tty1 ] && [ -f /etc/sudoers.d/90-frameforge-firstboot ]; then sudo /usr/local/lib/frameforge/deploy/scripts/install-frameforge.sh && sudo ff setup; fi\n" > /etc/profile.d/frameforge-firstboot.sh'
+    - curtin in-target -- sh -c 'printf "if [ \"\$(tty)\" = /dev/tty1 ] && [ -f /etc/sudoers.d/90-frameforge-firstboot ]; then\n  i=0; until ip route | grep -q default || [ \$i -ge 60 ]; do sleep 1; i=\$((i+1)); done\n  sudo /usr/local/lib/frameforge/deploy/scripts/install-frameforge.sh --venv-only && sudo ff setup\nfi\n" > /etc/profile.d/frameforge-firstboot.sh'
     - curtin in-target -- sh -c 'printf "frameforge box, not configured yet. Run  sudo ff setup\n" > /etc/motd'
-    # boot the NVMe first from now on; the stick never needs F7 again
     - curtin in-target -- sh -c 'u=$(efibootmgr | awk "/ubuntu/ {print substr(\$1,5,4); exit}"); o=$(efibootmgr | awk "/BootOrder/ {print \$2}"); [ -n "$u" ] && efibootmgr -o "$u,$(echo "$o" | sed "s/$u,\\{0,1\\}//;s/,$//")" || true'
   shutdown: poweroff
