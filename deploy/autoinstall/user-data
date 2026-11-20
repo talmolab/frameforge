@@ -34,15 +34,12 @@ autoinstall:
     - efibootmgr
   user-data:
     hostname: frameforge-new
-    users:
-      - name: talmolab
-        groups: [sudo, video, render]
-        shell: /bin/bash
-        lock_passwd: true
   updates: security
   late-commands:
     # The target has no network during late-commands; everything that downloads
     # (uv, venv, apt) runs on first boot via the installer. The stick only clones.
+    # The user is created here, not via cloud-init, so it exists for the chown.
+    - curtin in-target -- useradd -m -s /bin/bash -G sudo,video,render talmolab
     - curtin in-target -- mkdir -p /usr/local/lib
     - curtin in-target -- git clone https://github.com/talmolab/frameforge.git /usr/local/lib/frameforge
     - curtin in-target -- chown -R talmolab:talmolab /usr/local/lib/frameforge
