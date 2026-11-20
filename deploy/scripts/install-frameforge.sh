@@ -61,7 +61,11 @@ echo "[2/7] Syncing venv via uv..."
 # shell that has not re-read its profile since bootstrap installed it.
 UV_BIN="$(sudo -u "$FF_USER" -H bash -lc 'command -v uv' 2>/dev/null || true)"
 UV_BIN="${UV_BIN:-$(getent passwd "$FF_USER" | cut -d: -f6)/.local/bin/uv}"
-[ -x "$UV_BIN" ] || { echo "uv not found for $FF_USER; run bootstrap-box.sh first" >&2; exit 1; }
+if [ ! -x "$UV_BIN" ]; then
+    echo "  uv not found for $FF_USER; installing..."
+    curl -LsSf https://astral.sh/uv/install.sh | sudo -u "$FF_USER" -H sh
+fi
+[ -x "$UV_BIN" ] || { echo "uv install failed for $FF_USER" >&2; exit 1; }
 sudo -u "$FF_USER" -H bash -c "cd '$FF_HOME' && '$UV_BIN' sync $extra_flags"
 # `ff` on every PATH: the venv script, run as root so systemctl and the journal work.
 cat >/usr/local/bin/ff <<EOF

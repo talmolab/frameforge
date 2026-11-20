@@ -21,6 +21,7 @@ class Question:
     secret: bool = False
     repeat: bool = False                  # ask twice and require a match (passwords)
     choices: tuple[str, ...] = ()
+    describe: dict = field(default_factory=dict)
     validate: Validator | None = field(default=None, compare=False)
 
 
@@ -47,11 +48,18 @@ class Prompter:
     def _read(self, question: Question, again: bool = False) -> str:
         label = "again" if again else question.label
         if question.choices and not again:
-            label += " (" + " | ".join(question.choices) + ")"
-        shown = f"{label} [{question.default}]: " if question.default and not question.secret \
-            else f"{label}: "
-        raw = getpass.getpass(shown) if question.secret else input(shown)
-        return raw.strip() or question.default
+            for number, choice in enumerate(question.choices, start=1):
+                self.say(f"  {number}. {question.describe.get(choice, choice)}")
+            default = str(question.choices.index(question.default) + 1) \
+                if question.default in question.choices else ""
+            shown = f"{label} [{default}]: " if default else f"{label}: "
+        else:
+            shown = f"{label} [{question.default}]: " \
+                if question.default and not question.secret else f"{label}: "
+        raw = (getpass.getpass(shown) if question.secret else input(shown)).strip()
+        if question.choices and raw.isdigit() and 1 <= int(raw) <= len(question.choices):
+            return question.choices[int(raw) - 1]
+        return raw or question.default
 
 
 class Answers(Prompter):

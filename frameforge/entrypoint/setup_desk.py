@@ -8,6 +8,7 @@ import socket
 import subprocess
 import uuid
 import zoneinfo
+from dataclasses import dataclass
 
 import yaml
 
@@ -28,8 +29,9 @@ def questions() -> list[Question]:
                  default=socket.gethostname()),
         Question("timezone", "Timezone", "chunk folders follow this clock",
                  default=_current_timezone(), validate=_check_timezone),
-        Question("camera_nic", "Camera NIC", "the SFP+ port the camera switch plugs into",
-                 default=_camera_nic_default(nics), choices=tuple(name for name, _ in nics)),
+        Question("camera_nic", "Camera NIC", "the port the camera switch will plug into",
+                 default=_camera_nic_default(nics), choices=tuple(nic.name for nic in nics),
+                 describe={nic.name: nic.description for nic in nics}),
         Question("password", f"Password for {SERVICE_USER}", "ssh and sudo on this box",
                  secret=True, repeat=True),
         Question("smb_server", "Storage server", "e.g. pool1.vast.salk.edu",
@@ -130,26 +132,55 @@ def _write_tenant(answers: dict) -> None:
     write_yaml(TENANT_FILE, tenant)
 
 
-def _list_nics() -> list[tuple[str, str]]:
-    """(name, ipv4 or "") for every en*/eth* link."""
-    links = _run(["ip", "-o", "link", "show"])
+@dataclass(frozen=True)
+class Nic:
+    name: str
+    speed_mbps: int | None
+    cable: bool
+    address: str
+
+    @property
+    def description(self) -> str:
+        speed = f"{self.speed_mbps / 1000:g} Gb/s" if self.speed_mbps else "speed unknown"
+        state = f"cable in, address {self.address}" if self.address else \
+            "cable in, no address" if self.cable else "no cable"
+        role = "uplink" if self.address else "SFP+" if (self.speed_mbps or 0) >= 10000 else ""
+        return f"{self.name:12} {speed:14} {state:34} {role}".rstrip()
+
+
+def _list_nics() -> list[Nic]:
     addrs = _run(["ip", "-4", "-o", "addr", "show"])
     ipv4 = {}
     for line in addrs.splitlines():
         fields = line.split()
         if len(fields) >= 4:
             ipv4[fields[1]] = fields[3].split("/")[0]
+
     nics = []
-    for line in links.splitlines():
+    for line in _run(["ip", "-o", "link", "show"]).splitlines():
         name = line.split(":")[1].strip().split("@")[0]
-        if name.startswith(("en", "eth")):
-            nics.append((name, ipv4.get(name, "")))
+        if not name.startswith(("en", "eth")):
+            continue
+        nics.append(Nic(name, _sysfs_int(name, "speed"), _sysfs_int(name, "carrier") == 1,
+                        ipv4.get(name, "")))
     return nics
 
 
-def _camera_nic_default(nics: list[tuple[str, str]]) -> str:
-    """The NIC without an address: the uplink has one, the unplugged SFP+ does not."""
-    return next((name for name, addr in nics if not addr), nics[0][0] if nics else "")
+def _sysfs_int(nic: str, attribute: str) -> int | None:
+    try:
+        with open(f"/sys/class/net/{nic}/{attribute}") as raw:
+            value = int(raw.read().strip())
+    except (OSError, ValueError):
+        return None
+    return value if value >= 0 else None
+
+
+def _camera_nic_default(nics: list[Nic]) -> str:
+    """Fastest port without a cable: the uplink is cabled, the camera switch is not yet."""
+    candidates = [nic for nic in nics if not nic.cable and not nic.address] or nics
+    if not candidates:
+        return ""
+    return max(candidates, key=lambda nic: nic.speed_mbps or 0).name
 
 
 def _current_timezone() -> str:

@@ -76,10 +76,11 @@ Server ISO, then adds a `CIDATA` partition with `deploy/autoinstall/user-data`, 
 installer picks up on its own: whole NVMe, `talmolab` user, git, uv, the frameforge checkout at
 `/usr/local/lib/frameforge`, `ff` on PATH, NVMe first in boot order, power off when done.
 
-On the MS-01: plug the uplink RJ45 and the stick, cold boot, F7, pick the USB entry, walk away.
-When the box is off, pull the stick and power on. tty1 logs `talmolab` in and starts
-`sudo ff setup`; its first question sets the password, after which the auto-login is removed.
-Rebuild the stick only when `user-data` changes.
+On the MS-01: plug the uplink RJ45 and the stick, cold boot, F7, pick the USB entry for
+partition 2, answer `yes` to the autoinstall prompt, walk away. When the box is off, pull the
+stick and power on. tty1 logs `talmolab` in, runs the installer (uv, venv, units; the stick
+itself does no network work), then `sudo ff setup`; the password question closes the
+auto-login. Rebuild the stick only when `user-data` changes; the ISO is reused as is.
 
 ## Setup
 
