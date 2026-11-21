@@ -52,7 +52,8 @@ def write_text(path: str, text: str, mode: int = 0o644) -> None:
 def run_box_scripts(hostname: str, camera_nic: str, timezone: str, password: str) -> str:
     """bootstrap-box.sh then install-frameforge.sh, unchanged, driven by env.
     The service password is set first so bootstrap's passwd prompt is skipped.
-    Scripts run from copies: the installer hard-resets the checkout they live in."""
+    Bootstrap runs in place (it reads deploy/system beside itself); the installer
+    runs from a copy because it hard-resets the checkout it lives in."""
     if os.geteuid() != 0:
         return "not root: skipped bootstrap + install (run `sudo ff setup` to apply)"
     if subprocess.run(["id", "-u", SERVICE_USER], capture_output=True).returncode != 0:
@@ -62,11 +63,13 @@ def run_box_scripts(hostname: str, camera_nic: str, timezone: str, password: str
 
     env = {**os.environ, "FF_HOSTNAME": hostname, "CAMERA_IFACE": camera_nic,
            "FF_TIMEZONE": timezone, "FF_USER": SERVICE_USER}
+    if subprocess.run(["bash", _BOOTSTRAP, "--with-broadcast"], env=env).returncode != 0:
+        return "bootstrap-box.sh failed; fix and re-run `sudo ff setup`"
+
     with tempfile.TemporaryDirectory() as scratch:
-        for script, args in ((_BOOTSTRAP, ["--with-broadcast"]), (_INSTALL, [])):
-            copy = shutil.copy(script, scratch)
-            if subprocess.run(["bash", copy, *args], env=env).returncode != 0:
-                return f"{os.path.basename(script)} failed; fix and re-run `sudo ff setup`"
+        installer = shutil.copy(_INSTALL, scratch)
+        if subprocess.run(["bash", installer], env={**env, "FF_HOME": REPO_DIR}).returncode != 0:
+            return "install-frameforge.sh failed; fix and re-run `sudo ff setup`"
     return "bootstrap + install complete"
 
 
