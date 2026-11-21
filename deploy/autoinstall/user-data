@@ -30,6 +30,7 @@ autoinstall:
     - ca-certificates
     - efibootmgr
     - software-properties-common
+    - vim
   user-data:
     hostname: frameforge-new
     users:

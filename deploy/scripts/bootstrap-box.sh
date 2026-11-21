@@ -62,6 +62,7 @@ apt-get install -y --no-install-recommends \
     chrony \
     openssh-server \
     curl \
+    vim \
     ffmpeg \
     sudo
 systemctl enable --now chrony # NTP — chunk timestamps depend on a synced clock
