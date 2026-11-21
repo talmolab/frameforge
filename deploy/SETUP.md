@@ -60,7 +60,7 @@ ssh talmolab@lab-rig01.local             # mDNS access from lab LAN
 Browser (lab LAN):
 - `http://lab-rig01.local:3000` — Grafana (default admin / admin)
 - `http://lab-rig01.local:8888` — mediamtx web UI, pick a cam to watch live
-- `<root>/_ff_heartbeat/<hostname>.json` on storage — heartbeat (address, port, token, versions, session); the hub's registry record, and what the fleet console reads
+- `<lab folder>/_ff_heartbeat/<hostname>.json` on storage — heartbeat (address, port, token, versions, session); the hub's registry record, and what the fleet console reads
 - `http://lab-rig01:8080/api/status` — `ff serve`, the management API; writes need the `X-FF-Token` header with `FF_TOKEN` from secrets.env
 
 ## Install stick
@@ -100,6 +100,12 @@ sudo ff setup --mode rack    # rack: cameras cabled. Lists serials on the switch
 Desk writes `tenant.yaml` from `config/tenants/example.yaml` with storage and timezone filled,
 an empty `cameras.yaml`, and `secrets.env` (SMB creds, `FF_DEVICE_ID`, `FF_TOKEN`). Editing the
 files by hand still works; `ff restart` applies them.
+
+Storage layout: you give setup a lab folder (e.g. `cdracos/frameforge`); the rig records under
+`<lab folder>/<hostname>/<session>/cam_XX/...` and the heartbeat goes to
+`<lab folder>/_ff_heartbeat/<hostname>.json`, so one folder lists every rig and two rigs can
+never write the same chunk path. The tenant's `transfer.storage.root` is the rig folder; the
+heartbeat always uses its parent.
 
 ## Operations
 

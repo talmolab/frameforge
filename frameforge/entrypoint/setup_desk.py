@@ -37,7 +37,8 @@ def questions() -> list[Question]:
         Question("smb_server", "Storage server", "e.g. pool1.vast.salk.edu",
                  default="pool1.vast.salk.edu"),
         Question("smb_share", "Share", "e.g. talmo", default="talmo"),
-        Question("smb_root", "Root folder on the share", "e.g. cdracos/frameforge",
+        Question("smb_root", "Lab folder on the share",
+                 "this rig records under <folder>/<hostname>; the heartbeat goes in <folder>",
                  default="cdracos/frameforge"),
     ]
 
@@ -126,8 +127,8 @@ def _write_tenant(answers: dict) -> None:
     with open(EXAMPLE_TENANT) as raw:
         tenant = yaml.safe_load(raw)
     tenant.setdefault("transfer", {})["storage"] = {
-        "kind": "smb", "server": answers["smb_server"],
-        "share": answers["smb_share"], "root": answers["smb_root"]}
+        "kind": "smb", "server": answers["smb_server"], "share": answers["smb_share"],
+        "root": f"{answers['smb_root'].strip('/')}/{answers['hostname']}"}
     tenant.setdefault("encode", {})["timezone"] = answers["timezone"]
     write_yaml(TENANT_FILE, tenant)
 

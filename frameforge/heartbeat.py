@@ -1,11 +1,14 @@
-"""Rig heartbeat: publish a ``Heartbeat`` record under <root>/_ff_heartbeat/ so the
-hub can find, register and reach the box. Run hourly by heartbeat.timer."""
+"""Rig heartbeat: publish a ``Heartbeat`` record so the hub can find, register and
+reach the box. Each rig records under <lab folder>/<hostname>; the heartbeat goes
+to <lab folder>/_ff_heartbeat/<hostname>.json, beside the rig folders, so one
+folder lists every rig. Run hourly by heartbeat.timer."""
 
 import dataclasses
 import datetime
 import json
 import logging
 import os
+import posixpath
 import socket
 import subprocess
 import sys
@@ -39,6 +42,15 @@ def _uplink_ip(exclude_prefix: str) -> str | None:
         if not ip.startswith(exclude_prefix + "."):
             return ip
     return None
+
+
+def lab_folder(storage):
+    """The rig root's parent: where every rig's folder and _ff_heartbeat live."""
+    options = dict(storage.options)
+    for key in ("root", "prefix"):
+        if key in options:
+            options[key] = posixpath.dirname(options[key].rstrip("/"))
+    return dataclasses.replace(storage, options=options)
 
 
 def build(hostname: str, ip: str) -> Heartbeat:
@@ -91,7 +103,7 @@ def main() -> int:
     retry_seconds = float(os.environ.get("HB_RETRY_SECONDS", _DEFAULT_RETRY_SECONDS))
 
     config = load_tenant_config()
-    storage = make_storage(config.transfer.storage)
+    storage = make_storage(lab_folder(config.transfer.storage))
     hostname = socket.gethostname()
 
     try:
