@@ -10,7 +10,6 @@ import logging
 import os
 import posixpath
 import socket
-import subprocess
 import sys
 import tempfile
 import time
@@ -18,7 +17,7 @@ import time
 from .config import load_tenant_config
 from .core.logging_setup import setup_logging
 from .entrypoint import document
-from .entrypoint.handlers import git_sha, read_desired, read_session, secret
+from .entrypoint.handlers import git_sha, read_desired, read_session, secret, uplink_ip
 from .entrypoint.server import DEFAULT_PORT
 from .entrypoint.types import Heartbeat
 from .storage import make_storage
@@ -28,20 +27,6 @@ _DEFAULT_MAX_ATTEMPTS = 20
 _DEFAULT_RETRY_SECONDS = 15.0
 
 logger = logging.getLogger("frameforge.heartbeat")
-
-
-def _uplink_ip(exclude_prefix: str) -> str | None:
-    result = subprocess.run(
-        ["ip", "-4", "-o", "addr", "show", "scope", "global"],
-        capture_output=True, text=True, check=True)
-    for line in result.stdout.splitlines():
-        fields = line.split()
-        if len(fields) < 4:
-            continue
-        ip = fields[3].split("/")[0]
-        if not ip.startswith(exclude_prefix + "."):
-            return ip
-    return None
 
 
 def lab_folder(storage):
@@ -71,7 +56,7 @@ def build(hostname: str, ip: str) -> Heartbeat:
 
 
 def _write_heartbeat(storage, hostname: str, exclude_prefix: str) -> bool:
-    ip = _uplink_ip(exclude_prefix)
+    ip = uplink_ip(exclude_prefix)
     if ip is None:
         logger.warning("no routable uplink IP yet")
         return False

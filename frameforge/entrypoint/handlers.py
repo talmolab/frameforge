@@ -13,6 +13,7 @@ import time
 import urllib.request
 from collections.abc import Iterator
 
+from ..config import AcqCfg
 from ..core import session
 from ..core.paths import DESIRED_FILE, HOME_DIR
 from . import document as store
@@ -67,7 +68,7 @@ class Monitor:
 
     @verb("live stream URLs per camera", returns="list[StreamUrl]", mutates=False)
     def streams(self) -> list[StreamUrl]:
-        host = socket.gethostname()
+        host = uplink_ip() or socket.gethostname()
         return [StreamUrl(cam["id"], kind, f"{scheme}://{host}:{port}/{cam['id']}")
                 for cam in read_cameras()
                 for kind, (scheme, port) in STREAM_PORTS.items()]
@@ -141,6 +142,26 @@ class Configure:
           cli=False)
     def config_put(self, document: dict, if_version: int | None = None) -> ActionResult:
         return store.write(document.get("tenant", {}), document.get("cameras", []), if_version)
+
+
+def uplink_ip(exclude_prefix: str | None = None) -> str | None:
+    """First global IPv4 that is not on the camera subnet; None when there is none yet."""
+    if exclude_prefix is None:
+        exclude_prefix = store.read().tenant.get("acq", {}).get(
+            "gige_subnet", AcqCfg().gige_subnet)
+    try:
+        result = subprocess.run(["ip", "-4", "-o", "addr", "show", "scope", "global"],
+                                capture_output=True, text=True)
+    except OSError:
+        return None
+    for line in result.stdout.splitlines():
+        fields = line.split()
+        if len(fields) < 4:
+            continue
+        ip = fields[3].split("/")[0]
+        if not ip.startswith(exclude_prefix + "."):
+            return ip
+    return None
 
 
 def read_session() -> Session:
