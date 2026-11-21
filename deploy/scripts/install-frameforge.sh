@@ -48,6 +48,11 @@ echo "  extras:       $FF_EXTRAS"
 echo
 
 # ----- 1. Code: git clone or pull -----
+# bootstrap's netplan apply bounces the uplink seconds before this runs; wait for DNS.
+for _ in $(seq 60); do
+    getent hosts github.com >/dev/null 2>&1 && break
+    sleep 1
+done
 echo "[1/7] Syncing code to $FF_HOME..."
 if [ ! -d "$FF_HOME/.git" ]; then
     sudo -u "$FF_USER" git clone "$GIT_REMOTE" "$FF_HOME"
@@ -219,10 +224,12 @@ fi
 echo
 echo "=== install-frameforge.sh complete ==="
 echo "Verify:"
-echo "  systemctl status frameforge          # main service"
-echo "  systemctl status heartbeat.timer     # storage heartbeat"
-echo "  curl localhost:8080/api/status       # management server (ff serve)"
-echo "  journalctl -u frameforge -f          # live tail"
-echo "  curl localhost:9100/metrics | head   # frameforge metrics exposed"
+echo "  ff status                            # units, cameras alive, session, config versions"
+echo "  ff logs -f                           # live tail"
+echo "  systemctl status ff-serve            # management server; curl localhost:8080/api/status"
+echo "  systemctl status heartbeat.timer     # hourly heartbeat to storage (_ff_heartbeat/<host>.json)"
+echo "  curl -s localhost:9100/metrics | grep -E 'uptime|temperature'"
 echo "  open http://<host>:3000              # Grafana (default admin/admin)"
 echo "  open http://<host>:8888              # mediamtx browser viewer (if --with-broadcast)"
+echo
+echo "No cameras yet?  cable the switch, then:  sudo ff setup --mode rack && ff start"
